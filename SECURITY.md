@@ -30,7 +30,7 @@ Send an email to **felipe.morandini@gmail.com** with:
 The following are in scope for security reports:
 
 - Secret or token leakage through stdout, stderr, error messages, or debug output
-- Memory safety issues (bypassing `#![forbid(unsafe_code)]` through dependencies)
+- Memory safety issues, including unsafe or memory-unsound behavior in dependencies
 - Unintended network requests (any network call not triggered by `--jwks-url`)
 - Input validation bypasses (malformed tokens causing panics or undefined behavior)
 - Dependency vulnerabilities affecting jwt-term's functionality
@@ -38,7 +38,7 @@ The following are in scope for security reports:
 ### Out of Scope
 
 - Tokens passed as CLI arguments being visible in shell history (this is documented behavior; use `--token-env` or stdin instead)
-- Denial of service through extremely large tokens (a 16 KB limit is enforced)
+- Denial of service through extremely large tokens (a size limit is planned but not yet enforced)
 
 ## Security Design
 

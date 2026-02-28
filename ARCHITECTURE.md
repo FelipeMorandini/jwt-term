@@ -178,7 +178,7 @@ Security is a first-class concern in jwt-term. The following measures are enforc
 
 ### Secret Handling
 
-- **Zeroize.** The `zeroize` crate (with derive support) is used to ensure that sensitive data (HMAC secrets, private keys, raw token strings) is overwritten in memory when dropped.
+- **Zeroize.** The `zeroize` crate (with derive support) will be used to ensure that sensitive data (HMAC secrets, private keys, raw token strings) is overwritten in memory when dropped. This is planned for implementation alongside the verify command.
 - **Redacted Debug.** `DecodeArgs` and `VerifyArgs` implement custom `fmt::Debug` that replaces token and secret values with `[REDACTED]`. This prevents secrets from appearing in error chains, debug output, or logs.
 - **No logging of secrets.** The codebase never prints or logs raw tokens, secrets, or key material.
 
@@ -197,11 +197,11 @@ Security is a first-class concern in jwt-term. The following measures are enforc
 
 ### Unit Tests
 
-Unit tests are defined in `#[cfg(test)] mod tests` blocks within each source file. They test individual functions and types in isolation.
+Unit tests will be defined in `#[cfg(test)] mod tests` blocks colocated with the implementation. They test individual functions and types in isolation.
 
-Location: alongside the code in `src/core/` and `src/display/` modules.
+Intended location: alongside the code in modules under `src/core/` and `src/display/`.
 
-Example: `src/error.rs` contains tests for every error variant's `Display` implementation.
+Example pattern: `src/error.rs` contains tests for error variant `Display` implementations. As each module is implemented, corresponding unit tests will be added inline.
 
 ### Integration Tests
 
