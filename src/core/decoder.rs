@@ -51,14 +51,22 @@ impl fmt::Debug for DecodedToken {
 /// Returns an error if the token doesn't have exactly three parts,
 /// if base64url decoding fails, or if JSON parsing fails.
 pub fn decode_token(token: &str) -> Result<DecodedToken, JwtTermError> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
+    // Use an iterator-based split to avoid allocating a Vec and to
+    // enforce exactly three segments (header, payload, signature).
+    let mut parts = token.splitn(4, '.');
+
+    let header_part = parts.next().ok_or(JwtTermError::InvalidTokenFormat)?;
+    let payload_part = parts.next().ok_or(JwtTermError::InvalidTokenFormat)?;
+    let signature_part = parts.next().ok_or(JwtTermError::InvalidTokenFormat)?;
+
+    // If there is a fourth part, the token has too many segments.
+    if parts.next().is_some() {
         return Err(JwtTermError::InvalidTokenFormat);
     }
 
-    let header = decode_segment(parts[0], "header")?;
-    let payload = decode_segment(parts[1], "payload")?;
-    let signature = parts[2].to_string();
+    let header = decode_segment(header_part, "header")?;
+    let payload = decode_segment(payload_part, "payload")?;
+    let signature = signature_part.to_string();
 
     Ok(DecodedToken {
         header,

@@ -49,8 +49,13 @@ pub fn resolve_token(
 
     if let Some(var_name) = token_env {
         validate_env_var_name(var_name)?;
-        let token = std::env::var(var_name).map_err(|_| JwtTermError::EnvVarNotFound {
-            name: var_name.to_string(),
+        let token = std::env::var(var_name).map_err(|e| match e {
+            std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
+                name: var_name.to_string(),
+            },
+            std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
+                name: var_name.to_string(),
+            },
         })?;
         let trimmed = token.trim().to_string();
         if trimmed.is_empty() {
@@ -76,7 +81,9 @@ fn read_token_from_stdin() -> Result<String, JwtTermError> {
     io::stdin()
         .take(MAX_TOKEN_SIZE as u64 + 1)
         .read_to_string(&mut buffer)
-        .map_err(|_| JwtTermError::NoTokenProvided)?;
+        .map_err(|e| JwtTermError::StdinReadError {
+            reason: sanitize_io_error(&e),
+        })?;
 
     let token = buffer.trim().to_string();
     if token.is_empty() {
@@ -95,6 +102,20 @@ fn validate_token_size(token: &str) -> Result<String, JwtTermError> {
         });
     }
     Ok(token.to_string())
+}
+
+/// Sanitize an IO error into a user-friendly reason string.
+///
+/// Maps common `io::ErrorKind` values to generic messages rather
+/// than forwarding raw OS error strings that may leak system details.
+fn sanitize_io_error(err: &io::Error) -> String {
+    match err.kind() {
+        io::ErrorKind::InvalidData => "stream did not contain valid UTF-8".to_string(),
+        io::ErrorKind::BrokenPipe => "input stream was closed unexpectedly".to_string(),
+        io::ErrorKind::TimedOut => "read timed out".to_string(),
+        io::ErrorKind::UnexpectedEof => "unexpected end of input".to_string(),
+        _ => format!("read failed ({})", err.kind()),
+    }
 }
 
 /// Validate an environment variable name for safety.
@@ -240,10 +261,48 @@ mod tests {
         assert_eq!(result.unwrap(), "my.jwt.token");
     }
 
+    // NOTE: test_resolve_token_no_source_in_tty was removed because it calls
+    // resolve_token(None, None) which may read from the process' real stdin,
+    // making it environment-dependent and potentially blocking in non-TTY CI
+    // harnesses. Stdin behavior is covered by integration tests in tests/cli_test.rs.
+
+    // --- IO error sanitization ---
+
     #[test]
-    fn test_resolve_token_no_source_in_tty() {
-        // When no arg, no env, and stdin is a TTY, should fail
-        let err = resolve_token(None, None).unwrap_err();
-        assert!(matches!(err, JwtTermError::NoTokenProvided));
+    fn test_sanitize_io_error_invalid_data() {
+        let err = io::Error::new(io::ErrorKind::InvalidData, "bad utf-8");
+        assert_eq!(
+            sanitize_io_error(&err),
+            "stream did not contain valid UTF-8"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_io_error_broken_pipe() {
+        let err = io::Error::new(io::ErrorKind::BrokenPipe, "pipe broke");
+        assert_eq!(
+            sanitize_io_error(&err),
+            "input stream was closed unexpectedly"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_io_error_timed_out() {
+        let err = io::Error::new(io::ErrorKind::TimedOut, "deadline exceeded");
+        assert_eq!(sanitize_io_error(&err), "read timed out");
+    }
+
+    #[test]
+    fn test_sanitize_io_error_unexpected_eof() {
+        let err = io::Error::new(io::ErrorKind::UnexpectedEof, "eof");
+        assert_eq!(sanitize_io_error(&err), "unexpected end of input");
+    }
+
+    #[test]
+    fn test_sanitize_io_error_other_kind() {
+        let err = io::Error::new(io::ErrorKind::PermissionDenied, "no access");
+        let result = sanitize_io_error(&err);
+        assert!(result.starts_with("read failed ("));
+        assert!(!result.contains("no access"));
     }
 }

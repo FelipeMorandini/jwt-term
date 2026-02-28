@@ -91,6 +91,20 @@ pub enum JwtTermError {
         name: String,
     },
 
+    /// The specified environment variable contains non-Unicode data.
+    #[error("environment variable '{name}' contains invalid Unicode data")]
+    EnvVarNotUnicode {
+        /// Name of the environment variable.
+        name: String,
+    },
+
+    /// Failed to read token from stdin.
+    #[error("failed to read from stdin: {reason}")]
+    StdinReadError {
+        /// Sanitized description of the read failure.
+        reason: String,
+    },
+
     /// The token exceeds the maximum allowed size.
     #[error("token too large: {size} bytes exceeds maximum of {max_size} bytes")]
     TokenTooLarge {
@@ -254,6 +268,28 @@ mod tests {
         };
         assert!(err.to_string().contains("BAD=VAR"));
         assert!(err.to_string().contains("cannot contain '='"));
+    }
+
+    #[test]
+    fn test_env_var_not_unicode_display() {
+        let err = JwtTermError::EnvVarNotUnicode {
+            name: "BAD_VAR".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "environment variable 'BAD_VAR' contains invalid Unicode data"
+        );
+    }
+
+    #[test]
+    fn test_stdin_read_error_display() {
+        let err = JwtTermError::StdinReadError {
+            reason: "stream did not contain valid UTF-8".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "failed to read from stdin: stream did not contain valid UTF-8"
+        );
     }
 
     #[test]
