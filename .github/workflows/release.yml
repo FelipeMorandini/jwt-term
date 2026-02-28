@@ -54,7 +54,7 @@ jobs:
       # Install cross for Linux ARM builds
       - name: Install cross
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cargo install cross --version 0.2.5 --locked
 
       # Install musl tools for native Linux x86_64 musl builds
       - name: Install musl tools
@@ -85,9 +85,12 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $bin = "target/${{ matrix.target }}/release/jwt-term.exe"
+          $releaseDir = "target/${{ matrix.target }}/release"
+          $bin = "$releaseDir/jwt-term.exe"
           if (Test-Path $bin) {
-            Compress-Archive -Path $bin -DestinationPath "jwt-term-${{ github.ref_name }}-${{ matrix.target }}.zip"
+            Push-Location $releaseDir
+            Compress-Archive -Path "jwt-term.exe" -DestinationPath "../../../jwt-term-${{ github.ref_name }}-${{ matrix.target }}.zip"
+            Pop-Location
           } else {
             Write-Error "Binary not found at $bin"
             exit 1

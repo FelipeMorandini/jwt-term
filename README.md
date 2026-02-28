@@ -6,12 +6,12 @@ Stop pasting sensitive tokens into web portals. Debug them in your terminal.
 
 ## Features
 
-- **Instant Decoding** -- Decode base64url-encoded headers and payloads without signature verification
-- **Pretty-Print Output** -- Colorized, formatted JSON for quick visual inspection
-- **Offline Signature Validation** -- Validate HMAC, RSA, and ECDSA signatures with local secrets and PEM keys
-- **Remote JWKS Validation** -- Fetch and validate against OIDC provider JWKS endpoints
-- **Time-Travel Debugging** -- Simulate token expiry by evaluating `exp`/`nbf` against custom timestamps
-- **Security First** -- No telemetry, no logging, memory-zeroed secrets, stdin/env-var support
+- **Instant Decoding** *(planned)* -- Decode base64url-encoded headers and payloads without signature verification
+- **Pretty-Print Output** *(planned)* -- Colorized, formatted JSON for quick visual inspection
+- **Offline Signature Validation** *(planned)* -- Validate HMAC, RSA, and ECDSA signatures with local secrets and PEM keys
+- **Remote JWKS Validation** *(planned)* -- Fetch and validate against OIDC provider JWKS endpoints
+- **Time-Travel Debugging** *(planned)* -- Simulate token expiry by evaluating `exp`/`nbf` against custom timestamps
+- **Security First** -- No telemetry, no logging, stdin/env-var support (memory-zeroed secrets planned)
 
 ## Installation
 
