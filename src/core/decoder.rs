@@ -64,6 +64,13 @@ pub fn decode_token(token: &str) -> Result<DecodedToken, JwtTermError> {
         return Err(JwtTermError::InvalidTokenFormat);
     }
 
+    // Reject empty header/payload segments (e.g., tokens like ".." or "a..c")
+    // so users get a clear "invalid format" error instead of a confusing
+    // base64/JSON parse error. Empty signature is allowed (alg: "none").
+    if header_part.is_empty() || payload_part.is_empty() {
+        return Err(JwtTermError::InvalidTokenFormat);
+    }
+
     let header = decode_segment(header_part, "header")?;
     let payload = decode_segment(payload_part, "payload")?;
     let signature = signature_part.to_string();
@@ -193,6 +200,27 @@ mod tests {
             err,
             JwtTermError::JsonParseError { segment, .. } if segment == "payload"
         ));
+    }
+
+    #[test]
+    fn test_decode_token_empty_header_and_payload_fails() {
+        // Token like ".." has three empty segments
+        let err = decode_token("..").unwrap_err();
+        assert!(matches!(err, JwtTermError::InvalidTokenFormat));
+    }
+
+    #[test]
+    fn test_decode_token_empty_header_fails() {
+        // Token like ".payload.sig" has empty header
+        let err = decode_token(".eyJzdWIiOiIxMjM0In0.sig").unwrap_err();
+        assert!(matches!(err, JwtTermError::InvalidTokenFormat));
+    }
+
+    #[test]
+    fn test_decode_token_empty_payload_fails() {
+        // Token like "header..sig" has empty payload
+        let err = decode_token("eyJhbGciOiJIUzI1NiJ9..sig").unwrap_err();
+        assert!(matches!(err, JwtTermError::InvalidTokenFormat));
     }
 
     #[test]
