@@ -91,6 +91,24 @@ pub enum JwtTermError {
         name: String,
     },
 
+    /// The token exceeds the maximum allowed size.
+    #[error("token too large: {size} bytes exceeds maximum of {max_size} bytes")]
+    TokenTooLarge {
+        /// The actual size of the token in bytes.
+        size: usize,
+        /// The maximum allowed size in bytes.
+        max_size: usize,
+    },
+
+    /// The specified environment variable name is invalid.
+    #[error("invalid environment variable name '{name}': {reason}")]
+    InvalidEnvVarName {
+        /// The invalid variable name.
+        name: String,
+        /// Why the name is invalid.
+        reason: String,
+    },
+
     /// The command is not yet implemented.
     #[error("{command} is not yet implemented")]
     NotImplemented {
@@ -214,6 +232,28 @@ mod tests {
             err.to_string(),
             "environment variable 'JWT_TOKEN' is not set"
         );
+    }
+
+    #[test]
+    fn test_token_too_large_display() {
+        let err = JwtTermError::TokenTooLarge {
+            size: 20000,
+            max_size: 16384,
+        };
+        assert_eq!(
+            err.to_string(),
+            "token too large: 20000 bytes exceeds maximum of 16384 bytes"
+        );
+    }
+
+    #[test]
+    fn test_invalid_env_var_name_display() {
+        let err = JwtTermError::InvalidEnvVarName {
+            name: "BAD=VAR".to_string(),
+            reason: "variable name cannot contain '='".to_string(),
+        };
+        assert!(err.to_string().contains("BAD=VAR"));
+        assert!(err.to_string().contains("cannot contain '='"));
     }
 
     #[test]
