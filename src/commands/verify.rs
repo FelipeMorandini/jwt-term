@@ -5,6 +5,8 @@
 //! yet implemented. Displays the decoded token contents alongside
 //! the validation result.
 
+use std::io::Read;
+
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::json;
@@ -99,24 +101,49 @@ fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> 
     }
 
     if let Some(ref path) = args.key_file {
-        let metadata = std::fs::metadata(path).map_err(|e| JwtTermError::KeyFileError {
+        let file = std::fs::File::open(path).map_err(|e| JwtTermError::KeyFileError {
             path: path.display().to_string(),
             reason: super::sanitize_io_error(&e),
         })?;
-        if metadata.len() > MAX_KEY_FILE_SIZE {
-            return Err(JwtTermError::KeyFileTooLarge {
-                size: metadata.len(),
-                max_size: MAX_KEY_FILE_SIZE,
+        let metadata = file.metadata().map_err(|e| JwtTermError::KeyFileError {
+            path: path.display().to_string(),
+            reason: super::sanitize_io_error(&e),
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(JwtTermError::KeyFileError {
+                path: path.display().to_string(),
+                reason: "not a regular file".to_string(),
             });
         }
-        let bytes = std::fs::read(path).map_err(|e| JwtTermError::KeyFileError {
-            path: path.display().to_string(),
-            reason: super::sanitize_io_error(&e),
-        })?;
+        let bytes = read_bounded_file(file, path)?;
         return Ok(KeyMaterial::PemKey(bytes));
     }
 
     Err(JwtTermError::NoKeyProvided)
+}
+
+/// Read a key file with a bounded size limit.
+///
+/// Accepts an already-opened file handle to avoid TOCTOU races —
+/// the caller opens the file and checks `file.metadata()` on the
+/// same fd before passing it here. Reads up to `MAX_KEY_FILE_SIZE + 1`
+/// bytes; if the read exceeds the limit, returns a `KeyFileTooLarge`
+/// error.
+fn read_bounded_file(file: std::fs::File, path: &std::path::Path) -> Result<Vec<u8>, JwtTermError> {
+    let mut bytes = Vec::new();
+    file.take(MAX_KEY_FILE_SIZE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| JwtTermError::KeyFileError {
+            path: path.display().to_string(),
+            reason: super::sanitize_io_error(&e),
+        })?;
+    if bytes.len() as u64 > MAX_KEY_FILE_SIZE {
+        return Err(JwtTermError::KeyFileTooLarge {
+            size: bytes.len() as u64,
+            max_size: MAX_KEY_FILE_SIZE,
+        });
+    }
+    Ok(bytes)
 }
 
 /// Display results in colorized terminal format.

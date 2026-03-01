@@ -551,15 +551,32 @@ fn test_verify_key_file_too_large() {
     let mut f = std::fs::File::create(&large_file).unwrap();
     f.write_all(&vec![b'A'; 1_048_577]).unwrap();
     cmd()
-        .args([
-            "verify",
-            &token,
-            "--key-file",
-            large_file.to_str().unwrap(),
-        ])
+        .args(["verify", &token, "--key-file", large_file.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("key file too large"));
+}
+
+#[test]
+fn test_verify_key_file_not_regular_file() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    // /dev/null is a device file, not a regular file
+    cmd()
+        .args(["verify", &token, "--key-file", "/dev/null"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not a regular file"));
+}
+
+#[test]
+fn test_verify_key_file_directory_rejected() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    let dir = tempfile::tempdir().unwrap();
+    cmd()
+        .args(["verify", &token, "--key-file", dir.path().to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not a regular file"));
 }
 
 // --- Verify: Not Yet Implemented Features ---
