@@ -78,15 +78,17 @@ fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> 
 
     if let Some(ref env_name) = args.secret_env {
         super::validate_env_var_name(env_name)?;
-        let secret = std::env::var(env_name).map_err(|e| match e {
+        let secret = Zeroizing::new(std::env::var(env_name).map_err(|e| match e {
             std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
                 name: env_name.clone(),
             },
             std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
                 name: env_name.clone(),
             },
-        })?;
-        return Ok(KeyMaterial::Secret(Zeroizing::new(secret.into_bytes())));
+        })?);
+        let bytes = Zeroizing::new(secret.as_bytes().to_vec());
+        drop(secret);
+        return Ok(KeyMaterial::Secret(bytes));
     }
 
     if let Some(ref path) = args.key_file {

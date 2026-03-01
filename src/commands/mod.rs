@@ -51,19 +51,19 @@ pub fn resolve_token(
 
     if let Some(var_name) = token_env {
         validate_env_var_name(var_name)?;
-        let token = std::env::var(var_name).map_err(|e| match e {
+        let token = Zeroizing::new(std::env::var(var_name).map_err(|e| match e {
             std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
                 name: var_name.to_string(),
             },
             std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
                 name: var_name.to_string(),
             },
-        })?;
-        let trimmed = token.trim().to_string();
+        })?);
+        let trimmed = token.trim();
         if trimmed.is_empty() {
             return Err(JwtTermError::NoTokenProvided);
         }
-        return validate_token_size(&trimmed).map(Zeroizing::new);
+        return validate_token_size(trimmed).map(Zeroizing::new);
     }
 
     read_token_from_stdin().map(Zeroizing::new)
