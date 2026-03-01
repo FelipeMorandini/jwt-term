@@ -80,6 +80,14 @@ pub enum JwtTermError {
         kid: String,
     },
 
+    /// The token does not contain a `kid` header claim, and the JWKS
+    /// contains multiple keys making automatic selection impossible.
+    #[error(
+        "token does not contain a 'kid' (Key ID) header claim, which is required \
+         when the JWKS contains multiple keys"
+    )]
+    JwksMissingKid,
+
     /// Failed to parse a time-travel expression.
     #[error("invalid time expression '{expression}': {reason}")]
     InvalidTimeExpression {
@@ -133,7 +141,7 @@ pub enum JwtTermError {
     },
 
     /// No key material was provided for signature validation.
-    #[error("no key material provided: use --secret, --secret-env, or --key-file")]
+    #[error("no key material provided: use --secret, --secret-env, --key-file, or --jwks-url")]
     NoKeyProvided,
 
     /// The command is not yet implemented.
@@ -311,6 +319,15 @@ mod tests {
         assert!(err.to_string().contains("no key material provided"));
         assert!(err.to_string().contains("--secret"));
         assert!(err.to_string().contains("--key-file"));
+        assert!(err.to_string().contains("--jwks-url"));
+    }
+
+    #[test]
+    fn test_jwks_missing_kid_display() {
+        let err = JwtTermError::JwksMissingKid;
+        assert!(err.to_string().contains("kid"));
+        assert!(err.to_string().contains("Key ID"));
+        assert!(err.to_string().contains("multiple keys"));
     }
 
     #[test]

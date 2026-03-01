@@ -165,19 +165,8 @@ fn create_decoding_key(alg: Algorithm, key: &KeyMaterial) -> Result<DecodingKey,
     }
 }
 
-/// Sanitize a `jsonwebtoken` error kind into a user-friendly message.
-fn sanitize_jwt_error(kind: &jsonwebtoken::errors::ErrorKind) -> String {
-    match kind {
-        jsonwebtoken::errors::ErrorKind::InvalidToken => "invalid token structure".to_string(),
-        jsonwebtoken::errors::ErrorKind::Base64(_) => "invalid base64 encoding".to_string(),
-        jsonwebtoken::errors::ErrorKind::Json(_) => "invalid JSON in token".to_string(),
-        jsonwebtoken::errors::ErrorKind::Utf8(_) => "invalid UTF-8 in token".to_string(),
-        jsonwebtoken::errors::ErrorKind::InvalidAlgorithm => {
-            "algorithm mismatch between header and validation".to_string()
-        }
-        _ => "unexpected validation error".to_string(),
-    }
-}
+/// Re-export the shared error sanitizer for use in this module.
+use super::sanitize_jwt_error;
 
 #[cfg(test)]
 mod tests {

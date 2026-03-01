@@ -586,22 +586,65 @@ fn test_verify_key_file_directory_rejected() {
         .stderr(predicate::str::contains("not a regular file"));
 }
 
-// --- Verify: Not Yet Implemented Features ---
+// --- Verify: JWKS URL ---
 
 #[test]
-fn test_verify_jwks_url_not_implemented() {
+fn test_verify_jwks_rejects_http_url() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
     cmd()
         .args([
             "verify",
             &token,
             "--jwks-url",
-            "https://example.com/.well-known/jwks.json",
+            "http://example.com/.well-known/jwks.json",
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("only HTTPS URLs are accepted"));
 }
+
+#[test]
+fn test_verify_jwks_rejects_non_url() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--jwks-url", "not-a-url"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("HTTPS"));
+}
+
+#[test]
+fn test_verify_jwks_unreachable_host() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://192.0.2.1/.well-known/jwks.json",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("failed to fetch JWKS").and(
+                predicate::str::contains("timed out")
+                    .or(predicate::str::contains("failed to connect"))
+                    .or(predicate::str::contains("request failed")),
+            ),
+        );
+}
+
+#[test]
+fn test_verify_jwks_no_key_provided_includes_jwks_url_hint() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--jwks-url"));
+}
+
+// --- Verify: Not Yet Implemented Features ---
 
 #[test]
 fn test_verify_time_travel_not_implemented() {
