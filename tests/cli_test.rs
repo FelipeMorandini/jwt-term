@@ -1,7 +1,7 @@
 //! Integration tests for the jwt-term CLI.
 //!
 //! Tests argument parsing, help text, version output, subcommand routing,
-//! decode command behavior, and error handling.
+//! decode command behavior, verify command behavior, and error handling.
 
 mod common;
 
@@ -294,17 +294,241 @@ fn test_decode_empty_env_var_name() {
         ));
 }
 
-// --- Verify Subcommand (still stubbed) ---
+// --- Verify: HMAC Signature Validation ---
 
 #[test]
-fn test_verify_with_token_returns_not_implemented() {
+fn test_verify_hs256_valid_secret() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", common::HMAC_TEST_SECRET])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"))
+        .stdout(predicate::str::contains("HS256"));
+}
+
+#[test]
+fn test_verify_hs256_wrong_secret() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", "wrong-secret"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("INVALID SIGNATURE"));
+}
+
+#[test]
+fn test_verify_hs256_displays_decoded_content() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", common::HMAC_TEST_SECRET])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--- Header ---"))
+        .stdout(predicate::str::contains("--- Payload ---"))
+        .stdout(predicate::str::contains("--- Token Status ---"))
+        .stdout(predicate::str::contains("--- Signature ---"))
+        .stdout(predicate::str::contains("Test User"))
+        .stdout(predicate::str::contains("1234567890"));
+}
+
+#[test]
+fn test_verify_hs256_secret_from_env() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret-env", "JWT_TEST_SECRET"])
+        .env("JWT_TEST_SECRET", common::HMAC_TEST_SECRET)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"));
+}
+
+#[test]
+fn test_verify_secret_env_not_set() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret-env", "NONEXISTENT_SECRET_VAR"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("NONEXISTENT_SECRET_VAR"));
+}
+
+// --- Verify: RSA Signature Validation ---
+
+#[test]
+fn test_verify_rs256_valid_key_file() {
+    let token = common::create_rs256_token(&common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--key-file", common::RSA_PUBLIC_KEY_PATH])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"))
+        .stdout(predicate::str::contains("RS256"));
+}
+
+#[test]
+fn test_verify_rs256_wrong_key_file() {
+    let token = common::create_rs256_token(&common::standard_claims());
+    // Use EC public key for an RSA token — key type mismatch
+    cmd()
+        .args(["verify", &token, "--key-file", common::EC_PUBLIC_KEY_PATH])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("failed to parse RSA PEM key")
+                .or(predicate::str::contains("signature validation failed")),
+        );
+}
+
+// --- Verify: EC Signature Validation ---
+
+#[test]
+fn test_verify_es256_valid_key_file() {
+    let token = common::create_es256_token(&common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--key-file", common::EC_PUBLIC_KEY_PATH])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"))
+        .stdout(predicate::str::contains("ES256"));
+}
+
+// --- Verify: JSON Mode ---
+
+#[test]
+fn test_verify_json_mode_valid() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    let output = cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--json",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(parsed["signature"]["valid"], true);
+    assert_eq!(parsed["signature"]["algorithm"], "HS256");
+    assert!(parsed.get("header").is_some());
+    assert!(parsed.get("payload").is_some());
+}
+
+#[test]
+fn test_verify_json_mode_invalid() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    let output = cmd()
+        .args(["verify", &token, "--secret", "wrong-secret", "--json"])
+        .output()
+        .expect("failed to execute");
+
+    assert!(!output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(parsed["signature"]["valid"], false);
+    assert!(parsed["signature"]["reason"].as_str().is_some());
+}
+
+// --- Verify: Token Input Sources ---
+
+#[test]
+fn test_verify_from_stdin() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", "--secret", common::HMAC_TEST_SECRET])
+        .write_stdin(token)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"));
+}
+
+#[test]
+fn test_verify_from_env_var() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
     cmd()
         .args([
             "verify",
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.sig",
+            "--token-env",
+            "TEST_JWT_VERIFY",
             "--secret",
-            "test",
+            common::HMAC_TEST_SECRET,
         ])
+        .env("TEST_JWT_VERIFY", token)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"));
+}
+
+// --- Verify: Error Cases ---
+
+#[test]
+fn test_verify_no_key_provided() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no key material provided"));
+}
+
+#[test]
+fn test_verify_no_token_provided() {
+    cmd()
+        .args(["verify", "--secret", "test"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no token provided"));
+}
+
+#[test]
+fn test_verify_key_file_not_found() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--key-file", "/nonexistent/path/key.pem"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to read key file"));
+}
+
+#[test]
+fn test_verify_alg_none_rejected() {
+    // Token with alg: "none" — eyJhbGciOiJub25lIn0 = {"alg":"none"}
+    let token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0In0.";
+    cmd()
+        .args(["verify", token, "--secret", "test"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported algorithm"));
+}
+
+// --- Verify: Not Yet Implemented Features ---
+
+#[test]
+fn test_verify_jwks_url_not_implemented() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://example.com/.well-known/jwks.json",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not yet implemented"));
+}
+
+#[test]
+fn test_verify_time_travel_not_implemented() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", "test", "--time-travel", "+7d"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("not yet implemented"));
@@ -339,6 +563,19 @@ fn test_decode_malformed_token_exits_with_nonzero() {
 }
 
 #[test]
-fn test_verify_stub_exits_with_nonzero() {
-    cmd().args(["verify", "token"]).assert().failure();
+fn test_verify_valid_exits_with_zero() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", common::HMAC_TEST_SECRET])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_verify_invalid_exits_with_nonzero() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", "wrong-secret"])
+        .assert()
+        .failure();
 }

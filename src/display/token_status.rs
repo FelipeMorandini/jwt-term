@@ -7,6 +7,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 use colored::Colorize;
 use serde_json::Value;
 
+use crate::core::validator::ValidationOutcome;
+
 /// Display the temporal status of a JWT's claims.
 ///
 /// Examines `exp`, `iat`, and `nbf` claims in the payload and prints
@@ -71,6 +73,21 @@ fn display_nbf_status(nbf: DateTime<Utc>, now: DateTime<Utc>) {
         );
     } else {
         println!("  {} {}", "Not before:".bold(), format_timestamp(nbf));
+    }
+}
+
+/// Display the result of signature validation with color coding.
+///
+/// - Valid: green "VALID SIGNATURE (algorithm)"
+/// - Invalid: red "INVALID SIGNATURE (reason)"
+pub fn display_validation_result(outcome: &ValidationOutcome, algorithm: &str) {
+    match outcome {
+        ValidationOutcome::Valid => {
+            println!("  {} ({})", "VALID SIGNATURE".green().bold(), algorithm);
+        }
+        ValidationOutcome::Invalid { reason } => {
+            println!("  {} ({})", "INVALID SIGNATURE".red().bold(), reason);
+        }
     }
 }
 

@@ -21,6 +21,13 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::Decode(args) => commands::decode::execute(args),
-        Commands::Verify(args) => commands::verify::execute(args),
+        Commands::Verify(args) => {
+            let valid = commands::verify::execute(args)?;
+            if !valid {
+                // All destructors (including Zeroizing) run before exit.
+                std::process::exit(1);
+            }
+            Ok(())
+        }
     }
 }

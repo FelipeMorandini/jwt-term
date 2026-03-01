@@ -13,6 +13,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use zeroize::Zeroizing;
 
 /// A blazing-fast, secure, and offline-first CLI for inspecting,
 /// validating, and manipulating JSON Web Tokens (JWTs).
@@ -75,8 +76,8 @@ pub struct VerifyArgs {
     ///
     /// WARNING: Passing secrets via CLI arguments may expose them in shell
     /// history. Prefer using --secret-env or piping via stdin instead.
-    #[arg(long, value_name = "SECRET")]
-    pub secret: Option<String>,
+    #[arg(long, value_name = "SECRET", value_parser = parse_zeroizing_string)]
+    pub secret: Option<Zeroizing<String>>,
 
     /// Read the HMAC secret from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]
@@ -103,6 +104,11 @@ pub struct VerifyArgs {
     /// Output raw JSON without colors (machine-readable).
     #[arg(long)]
     pub json: bool,
+}
+
+/// Parse a string into a `Zeroizing<String>` for secure CLI arguments.
+fn parse_zeroizing_string(s: &str) -> Result<Zeroizing<String>, std::convert::Infallible> {
+    Ok(Zeroizing::new(s.to_string()))
 }
 
 /// Custom `Debug` that redacts token and secret fields to prevent

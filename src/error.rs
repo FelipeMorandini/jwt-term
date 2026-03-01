@@ -123,6 +123,10 @@ pub enum JwtTermError {
         reason: String,
     },
 
+    /// No key material was provided for signature validation.
+    #[error("no key material provided: use --secret, --secret-env, or --key-file")]
+    NoKeyProvided,
+
     /// The command is not yet implemented.
     #[error("{command} is not yet implemented")]
     NotImplemented {
@@ -290,6 +294,14 @@ mod tests {
             err.to_string(),
             "failed to read from stdin: stream did not contain valid UTF-8"
         );
+    }
+
+    #[test]
+    fn test_no_key_provided_display() {
+        let err = JwtTermError::NoKeyProvided;
+        assert!(err.to_string().contains("no key material provided"));
+        assert!(err.to_string().contains("--secret"));
+        assert!(err.to_string().contains("--key-file"));
     }
 
     #[test]

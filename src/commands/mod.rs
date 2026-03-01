@@ -9,6 +9,8 @@
 
 use std::io::{self, IsTerminal, Read};
 
+use zeroize::Zeroizing;
+
 use crate::error::JwtTermError;
 
 pub mod decode;
@@ -38,13 +40,13 @@ const MAX_ENV_VAR_NAME_LEN: usize = 256;
 pub fn resolve_token(
     token_arg: Option<&str>,
     token_env: Option<&str>,
-) -> Result<String, JwtTermError> {
+) -> Result<Zeroizing<String>, JwtTermError> {
     if let Some(token) = token_arg {
         let trimmed = token.trim();
         if trimmed.is_empty() {
             return Err(JwtTermError::NoTokenProvided);
         }
-        return validate_token_size(trimmed);
+        return validate_token_size(trimmed).map(Zeroizing::new);
     }
 
     if let Some(var_name) = token_env {
@@ -61,10 +63,10 @@ pub fn resolve_token(
         if trimmed.is_empty() {
             return Err(JwtTermError::NoTokenProvided);
         }
-        return validate_token_size(&trimmed);
+        return validate_token_size(&trimmed).map(Zeroizing::new);
     }
 
-    read_token_from_stdin()
+    read_token_from_stdin().map(Zeroizing::new)
 }
 
 /// Read a token from stdin with bounded input.
@@ -226,7 +228,7 @@ mod tests {
     #[test]
     fn test_resolve_token_from_arg() {
         let result = resolve_token(Some("my.jwt.token"), None);
-        assert_eq!(result.unwrap(), "my.jwt.token");
+        assert_eq!(result.unwrap().as_str(), "my.jwt.token");
     }
 
     #[test]
@@ -234,7 +236,7 @@ mod tests {
         // When a CLI arg is provided, it should be used regardless of
         // whether a token_env name is also provided.
         let result = resolve_token(Some("arg-token"), Some("SOME_VAR"));
-        assert_eq!(result.unwrap(), "arg-token");
+        assert_eq!(result.unwrap().as_str(), "arg-token");
     }
 
     #[test]
@@ -258,7 +260,7 @@ mod tests {
     #[test]
     fn test_resolve_token_trims_whitespace() {
         let result = resolve_token(Some("  my.jwt.token  "), None);
-        assert_eq!(result.unwrap(), "my.jwt.token");
+        assert_eq!(result.unwrap().as_str(), "my.jwt.token");
     }
 
     // NOTE: test_resolve_token_no_source_in_tty was removed because it calls
