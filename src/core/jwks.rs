@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::core::validator::ValidationOutcome;
 use crate::error::JwtTermError;
 
-/// Re-export the shared error sanitizer for use in this module.
+/// Import the shared error sanitizer for use in this module.
 use super::sanitize_jwt_error;
 
 /// Maximum JWKS response body size in bytes (1 MB).
@@ -60,14 +60,23 @@ pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutco
 }
 
 /// Reject non-HTTPS URLs before any network call.
+///
+/// Parses the URL properly to handle case-insensitive schemes and
+/// catch malformed URLs, rather than relying on string prefix matching.
 fn validate_url_scheme(url: &str) -> Result<(), JwtTermError> {
-    if url.starts_with("https://") {
-        Ok(())
-    } else {
-        Err(JwtTermError::JwksFetchError {
+    match reqwest::Url::parse(url) {
+        Ok(parsed) if parsed.scheme() == "https" => Ok(()),
+        Ok(parsed) => Err(JwtTermError::JwksFetchError {
             url: url.to_string(),
-            reason: "only HTTPS URLs are accepted for JWKS endpoints".to_string(),
-        })
+            reason: format!(
+                "only HTTPS URLs are accepted for JWKS endpoints (got scheme '{}')",
+                parsed.scheme()
+            ),
+        }),
+        Err(_) => Err(JwtTermError::JwksFetchError {
+            url: url.to_string(),
+            reason: "invalid URL for JWKS endpoint".to_string(),
+        }),
     }
 }
 
@@ -156,10 +165,22 @@ fn extract_header(token: &str) -> Result<jsonwebtoken::Header, JwtTermError> {
 fn find_matching_key<'a>(jwks: &'a JwkSet, kid: Option<&str>) -> Result<&'a Jwk, JwtTermError> {
     match kid {
         Some(kid) => jwks.find(kid).ok_or_else(|| JwtTermError::JwksKeyNotFound {
-            kid: kid.to_string(),
+            kid: truncate_kid(kid),
         }),
         None if jwks.keys.len() == 1 => Ok(&jwks.keys[0]),
         None => Err(JwtTermError::JwksMissingKid),
+    }
+}
+
+/// Truncate a `kid` value for safe inclusion in error messages.
+///
+/// Caps at 128 bytes to prevent excessively long error output from
+/// crafted tokens and mitigate terminal escape sequence injection.
+fn truncate_kid(kid: &str) -> String {
+    if kid.len() > 128 {
+        format!("{}...(truncated)", &kid[..128])
+    } else {
+        kid.to_string()
     }
 }
 
@@ -204,12 +225,22 @@ fn key_algorithm_to_algorithm(ka: KeyAlgorithm) -> Result<Algorithm, JwtTermErro
 /// Constructs a [`DecodingKey`] from the JWK and validates the token.
 /// Temporal claims (`exp`, `nbf`) are not checked — this is a
 /// debugging tool focused on signature correctness.
+///
+/// # Safety assumption — `alg:none`
+///
+/// This function receives a `jsonwebtoken::Algorithm` enum value which
+/// has no `None` variant. The `alg:none` attack cannot reach here
+/// because `resolve_algorithm` either maps from `KeyAlgorithm` (which
+/// also has no `None` variant) or uses `header.alg` (which is decoded
+/// by `jsonwebtoken::decode_header` into the `Algorithm` enum). If a
+/// future library update introduces an `Algorithm::None` variant, add
+/// an explicit rejection guard here.
 fn validate_token_with_jwk(
     token: &str,
     jwk: &Jwk,
     algorithm: Algorithm,
 ) -> Result<ValidationOutcome, JwtTermError> {
-    let decoding_key = DecodingKey::from_jwk(jwk).map_err(|_| JwtTermError::SignatureInvalid {
+    let decoding_key = DecodingKey::from_jwk(jwk).map_err(|_| JwtTermError::JwksInvalidKey {
         reason: "failed to construct decoding key from JWK".to_string(),
     })?;
 
@@ -291,23 +322,41 @@ mod tests {
         let err = validate_url_scheme("http://example.com/.well-known/jwks.json").unwrap_err();
         assert!(matches!(
             err,
-            JwtTermError::JwksFetchError { reason, .. } if reason.contains("HTTPS")
+            JwtTermError::JwksFetchError { reason, .. } if reason.contains("HTTPS") && reason.contains("http")
         ));
     }
 
     #[test]
     fn test_validate_url_scheme_rejects_empty() {
-        assert!(validate_url_scheme("").is_err());
+        let err = validate_url_scheme("").unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. } if reason.contains("invalid URL")
+        ));
     }
 
     #[test]
     fn test_validate_url_scheme_rejects_ftp() {
-        assert!(validate_url_scheme("ftp://example.com/jwks").is_err());
+        let err = validate_url_scheme("ftp://example.com/jwks").unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. } if reason.contains("ftp")
+        ));
     }
 
     #[test]
     fn test_validate_url_scheme_rejects_no_scheme() {
-        assert!(validate_url_scheme("example.com/.well-known/jwks.json").is_err());
+        let err = validate_url_scheme("example.com/.well-known/jwks.json").unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. } if reason.contains("invalid URL")
+        ));
+    }
+
+    #[test]
+    fn test_validate_url_scheme_accepts_https_case_insensitive() {
+        // url::Url normalizes schemes to lowercase, so HTTPS:// is accepted
+        assert!(validate_url_scheme("HTTPS://example.com/.well-known/jwks.json").is_ok());
     }
 
     // --- Header extraction ---
@@ -371,6 +420,21 @@ mod tests {
         let jwks = parse_jwks(json);
         let err = find_matching_key(&jwks, None).unwrap_err();
         assert!(matches!(err, JwtTermError::JwksMissingKid));
+    }
+
+    // --- kid truncation ---
+
+    #[test]
+    fn test_truncate_kid_short() {
+        assert_eq!(truncate_kid("my-key-id"), "my-key-id");
+    }
+
+    #[test]
+    fn test_truncate_kid_long() {
+        let long_kid = "a".repeat(200);
+        let result = truncate_kid(&long_kid);
+        assert!(result.len() < 200);
+        assert!(result.ends_with("...(truncated)"));
     }
 
     // --- Algorithm resolution ---

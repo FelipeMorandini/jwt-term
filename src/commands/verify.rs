@@ -37,6 +37,10 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
         .into());
     }
 
+    if args.jwks_url.is_some() {
+        check_jwks_conflicts(args)?;
+    }
+
     let token = resolve_token(
         args.token.as_ref().map(|t| t.as_str()),
         args.token_env.as_deref(),
@@ -139,6 +143,28 @@ fn resolve_key_from_file(path: &Path) -> Result<KeyMaterial, JwtTermError> {
     }
     let bytes = read_bounded_file(file, path)?;
     Ok(KeyMaterial::PemKey(bytes))
+}
+
+/// Reject conflicting key options when `--jwks-url` is present.
+///
+/// Returns an error naming the first conflicting flag found.
+fn check_jwks_conflicts(args: &VerifyArgs) -> Result<(), JwtTermError> {
+    if args.secret.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--secret".to_string(),
+        });
+    }
+    if args.secret_env.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--secret-env".to_string(),
+        });
+    }
+    if args.key_file.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--key-file".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Read a key file with a bounded size limit.

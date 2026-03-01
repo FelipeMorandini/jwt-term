@@ -610,25 +610,26 @@ fn test_verify_jwks_rejects_non_url() {
         .args(["verify", &token, "--jwks-url", "not-a-url"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("HTTPS"));
+        .stderr(predicate::str::contains("invalid URL"));
 }
 
 #[test]
 fn test_verify_jwks_unreachable_host() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    // Use localhost on a privileged port (1) for immediate connection-refused
+    // instead of 192.0.2.1 which waits for a 10s timeout.
     cmd()
         .args([
             "verify",
             &token,
             "--jwks-url",
-            "https://192.0.2.1/.well-known/jwks.json",
+            "https://localhost:1/.well-known/jwks.json",
         ])
         .assert()
         .failure()
         .stderr(
             predicate::str::contains("failed to fetch JWKS").and(
-                predicate::str::contains("timed out")
-                    .or(predicate::str::contains("failed to connect"))
+                predicate::str::contains("failed to connect")
                     .or(predicate::str::contains("request failed")),
             ),
         );
@@ -642,6 +643,63 @@ fn test_verify_jwks_no_key_provided_includes_jwks_url_hint() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("--jwks-url"));
+}
+
+// --- Verify: JWKS Conflicting Options ---
+
+#[test]
+fn test_verify_jwks_conflicts_with_secret() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://example.com/.well-known/jwks.json",
+            "--secret",
+            "my-secret",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("--jwks-url")
+                .and(predicate::str::contains("--secret"))
+                .and(predicate::str::contains("cannot be combined")),
+        );
+}
+
+#[test]
+fn test_verify_jwks_conflicts_with_secret_env() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://example.com/.well-known/jwks.json",
+            "--secret-env",
+            "MY_SECRET",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--secret-env"));
+}
+
+#[test]
+fn test_verify_jwks_conflicts_with_key_file() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://example.com/.well-known/jwks.json",
+            "--key-file",
+            "some-key.pem",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--key-file"));
 }
 
 // --- Verify: Not Yet Implemented Features ---

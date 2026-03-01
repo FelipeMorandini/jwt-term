@@ -165,7 +165,7 @@ fn create_decoding_key(alg: Algorithm, key: &KeyMaterial) -> Result<DecodingKey,
     }
 }
 
-/// Re-export the shared error sanitizer for use in this module.
+/// Import the shared error sanitizer for use in this module.
 use super::sanitize_jwt_error;
 
 #[cfg(test)]
