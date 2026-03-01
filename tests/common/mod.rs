@@ -23,3 +23,68 @@ pub const INVALID_TOKEN: &str = "not-a-valid-jwt";
 
 /// An empty string for edge case testing.
 pub const EMPTY_TOKEN: &str = "";
+
+/// HMAC secret used to sign test tokens for verify tests.
+pub const HMAC_TEST_SECRET: &str = "verify-test-secret-key";
+
+/// Path to the test RSA public key fixture.
+pub const RSA_PUBLIC_KEY_PATH: &str = "tests/fixtures/rsa_public.pem";
+
+/// Path to the test RSA private key fixture.
+pub const RSA_PRIVATE_KEY_PATH: &str = "tests/fixtures/rsa_private.pem";
+
+/// Path to the test EC public key fixture.
+pub const EC_PUBLIC_KEY_PATH: &str = "tests/fixtures/ec_public.pem";
+
+/// Path to the test EC private key fixture.
+pub const EC_PRIVATE_KEY_PATH: &str = "tests/fixtures/ec_private.pem";
+
+/// Path to the test Ed25519 public key fixture.
+pub const ED25519_PUBLIC_KEY_PATH: &str = "tests/fixtures/ed25519_public.pem";
+
+/// Path to the test Ed25519 private key fixture.
+pub const ED25519_PRIVATE_KEY_PATH: &str = "tests/fixtures/ed25519_private.pem";
+
+/// Create an HS256-signed token with the given claims.
+pub fn create_hs256_token(secret: &str, claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    let header = Header::new(Algorithm::HS256);
+    let key = EncodingKey::from_secret(secret.as_bytes());
+    encode(&header, claims, &key).unwrap()
+}
+
+/// Create an RS256-signed token using the test RSA private key.
+pub fn create_rs256_token(claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    let private_key = std::fs::read(RSA_PRIVATE_KEY_PATH).unwrap();
+    let header = Header::new(Algorithm::RS256);
+    let key = EncodingKey::from_rsa_pem(&private_key).unwrap();
+    encode(&header, claims, &key).unwrap()
+}
+
+/// Create an ES256-signed token using the test EC private key.
+pub fn create_es256_token(claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    let private_key = std::fs::read(EC_PRIVATE_KEY_PATH).unwrap();
+    let header = Header::new(Algorithm::ES256);
+    let key = EncodingKey::from_ec_pem(&private_key).unwrap();
+    encode(&header, claims, &key).unwrap()
+}
+
+/// Create an EdDSA-signed token using the test Ed25519 private key.
+pub fn create_eddsa_token(claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    let private_key = std::fs::read(ED25519_PRIVATE_KEY_PATH).unwrap();
+    let header = Header::new(Algorithm::EdDSA);
+    let key = EncodingKey::from_ed_pem(&private_key).unwrap();
+    encode(&header, claims, &key).unwrap()
+}
+
+/// Standard test claims used across verify tests.
+pub fn standard_claims() -> serde_json::Value {
+    serde_json::json!({
+        "sub": "1234567890",
+        "name": "Test User",
+        "iat": 1516239022
+    })
+}

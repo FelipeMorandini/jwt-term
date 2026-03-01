@@ -9,6 +9,8 @@
 
 use std::io::{self, IsTerminal, Read};
 
+use zeroize::Zeroizing;
+
 use crate::error::JwtTermError;
 
 pub mod decode;
@@ -38,46 +40,48 @@ const MAX_ENV_VAR_NAME_LEN: usize = 256;
 pub fn resolve_token(
     token_arg: Option<&str>,
     token_env: Option<&str>,
-) -> Result<String, JwtTermError> {
+) -> Result<Zeroizing<String>, JwtTermError> {
     if let Some(token) = token_arg {
         let trimmed = token.trim();
         if trimmed.is_empty() {
             return Err(JwtTermError::NoTokenProvided);
         }
-        return validate_token_size(trimmed);
+        return validate_token_size(trimmed).map(Zeroizing::new);
     }
 
     if let Some(var_name) = token_env {
         validate_env_var_name(var_name)?;
-        let token = std::env::var(var_name).map_err(|e| match e {
+        let token = Zeroizing::new(std::env::var(var_name).map_err(|e| match e {
             std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
                 name: var_name.to_string(),
             },
             std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
                 name: var_name.to_string(),
             },
-        })?;
-        let trimmed = token.trim().to_string();
+        })?);
+        let trimmed = token.trim();
         if trimmed.is_empty() {
             return Err(JwtTermError::NoTokenProvided);
         }
-        return validate_token_size(&trimmed);
+        return validate_token_size(trimmed).map(Zeroizing::new);
     }
 
-    read_token_from_stdin()
+    read_token_from_stdin().map(Zeroizing::new)
 }
 
 /// Read a token from stdin with bounded input.
 ///
 /// Only attempts to read if stdin is not a TTY (i.e., input is piped).
 /// Limits the read to `MAX_TOKEN_SIZE + 1` bytes to prevent resource
-/// exhaustion from unbounded input.
+/// exhaustion from unbounded input. Uses `Zeroizing<String>` for the
+/// internal buffer to ensure sensitive token data is cleared from
+/// memory on drop.
 fn read_token_from_stdin() -> Result<String, JwtTermError> {
     if io::stdin().is_terminal() {
         return Err(JwtTermError::NoTokenProvided);
     }
 
-    let mut buffer = String::new();
+    let mut buffer = Zeroizing::new(String::new());
     io::stdin()
         .take(MAX_TOKEN_SIZE as u64 + 1)
         .read_to_string(&mut buffer)
@@ -85,12 +89,12 @@ fn read_token_from_stdin() -> Result<String, JwtTermError> {
             reason: sanitize_io_error(&e),
         })?;
 
-    let token = buffer.trim().to_string();
-    if token.is_empty() {
+    let trimmed = buffer.trim();
+    if trimmed.is_empty() {
         return Err(JwtTermError::NoTokenProvided);
     }
 
-    validate_token_size(&token)
+    validate_token_size(trimmed)
 }
 
 /// Validate that a token does not exceed the maximum size.
@@ -226,7 +230,7 @@ mod tests {
     #[test]
     fn test_resolve_token_from_arg() {
         let result = resolve_token(Some("my.jwt.token"), None);
-        assert_eq!(result.unwrap(), "my.jwt.token");
+        assert_eq!(result.unwrap().as_str(), "my.jwt.token");
     }
 
     #[test]
@@ -234,7 +238,7 @@ mod tests {
         // When a CLI arg is provided, it should be used regardless of
         // whether a token_env name is also provided.
         let result = resolve_token(Some("arg-token"), Some("SOME_VAR"));
-        assert_eq!(result.unwrap(), "arg-token");
+        assert_eq!(result.unwrap().as_str(), "arg-token");
     }
 
     #[test]
@@ -258,7 +262,7 @@ mod tests {
     #[test]
     fn test_resolve_token_trims_whitespace() {
         let result = resolve_token(Some("  my.jwt.token  "), None);
-        assert_eq!(result.unwrap(), "my.jwt.token");
+        assert_eq!(result.unwrap().as_str(), "my.jwt.token");
     }
 
     // NOTE: test_resolve_token_no_source_in_tty was removed because it calls

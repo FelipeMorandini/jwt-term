@@ -55,6 +55,15 @@ pub enum JwtTermError {
         reason: String,
     },
 
+    /// The key file exceeds the maximum allowed size.
+    #[error("key file too large: {size} bytes exceeds maximum of {max_size} bytes")]
+    KeyFileTooLarge {
+        /// The actual size of the key file in bytes.
+        size: u64,
+        /// The maximum allowed size in bytes.
+        max_size: u64,
+    },
+
     /// Failed to fetch JWKS from the remote endpoint.
     #[error("failed to fetch JWKS from '{url}': {reason}")]
     JwksFetchError {
@@ -122,6 +131,10 @@ pub enum JwtTermError {
         /// Why the name is invalid.
         reason: String,
     },
+
+    /// No key material was provided for signature validation.
+    #[error("no key material provided: use --secret, --secret-env, or --key-file")]
+    NoKeyProvided,
 
     /// The command is not yet implemented.
     #[error("{command} is not yet implemented")]
@@ -293,11 +306,31 @@ mod tests {
     }
 
     #[test]
+    fn test_no_key_provided_display() {
+        let err = JwtTermError::NoKeyProvided;
+        assert!(err.to_string().contains("no key material provided"));
+        assert!(err.to_string().contains("--secret"));
+        assert!(err.to_string().contains("--key-file"));
+    }
+
+    #[test]
     fn test_not_implemented_display() {
         let err = JwtTermError::NotImplemented {
             command: "decode".to_string(),
         };
         assert_eq!(err.to_string(), "decode is not yet implemented");
+    }
+
+    #[test]
+    fn test_key_file_too_large_display() {
+        let err = JwtTermError::KeyFileTooLarge {
+            size: 2_000_000,
+            max_size: 1_048_576,
+        };
+        assert_eq!(
+            err.to_string(),
+            "key file too large: 2000000 bytes exceeds maximum of 1048576 bytes"
+        );
     }
 
     #[test]

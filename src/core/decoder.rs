@@ -9,6 +9,7 @@ use std::fmt;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 use crate::error::JwtTermError;
 
@@ -23,9 +24,11 @@ pub struct DecodedToken {
     pub payload: Value,
     /// The raw base64url-encoded signature segment.
     ///
-    /// Used by the verify command (Phase 3) for signature validation.
+    /// Not yet consumed by application code but stored in `Zeroizing`
+    /// to ensure it is zeroed from memory on drop, since it contains
+    /// cryptographic signature material.
     #[allow(dead_code)]
-    pub signature: String,
+    pub signature: Zeroizing<String>,
 }
 
 /// Custom `Debug` that redacts payload and signature to prevent
@@ -73,7 +76,7 @@ pub fn decode_token(token: &str) -> Result<DecodedToken, JwtTermError> {
 
     let header = decode_segment(header_part, "header")?;
     let payload = decode_segment(payload_part, "payload")?;
-    let signature = signature_part.to_string();
+    let signature = Zeroizing::new(signature_part.to_string());
 
     Ok(DecodedToken {
         header,
@@ -133,7 +136,7 @@ mod tests {
         assert_eq!(decoded.payload["name"], "Test User");
         assert_eq!(decoded.payload["iat"], 1516239022);
         assert_eq!(
-            decoded.signature,
+            decoded.signature.as_str(),
             "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
         );
     }
@@ -232,6 +235,6 @@ mod tests {
         let decoded = decode_token(token).unwrap();
         assert_eq!(decoded.header["alg"], "none");
         assert!(decoded.payload.as_object().unwrap().is_empty());
-        assert_eq!(decoded.signature, "");
+        assert_eq!(decoded.signature.as_str(), "");
     }
 }

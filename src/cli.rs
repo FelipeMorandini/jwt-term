@@ -13,6 +13,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use zeroize::Zeroizing;
 
 /// A blazing-fast, secure, and offline-first CLI for inspecting,
 /// validating, and manipulating JSON Web Tokens (JWTs).
@@ -39,7 +40,8 @@ pub enum Commands {
 #[derive(clap::Args)]
 pub struct DecodeArgs {
     /// The JWT token to decode. If omitted, reads from stdin.
-    pub token: Option<String>,
+    #[arg(value_parser = parse_zeroizing_string)]
+    pub token: Option<Zeroizing<String>>,
 
     /// Read the token from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]
@@ -65,7 +67,8 @@ impl fmt::Debug for DecodeArgs {
 #[derive(clap::Args)]
 pub struct VerifyArgs {
     /// The JWT token to verify. If omitted, reads from stdin.
-    pub token: Option<String>,
+    #[arg(value_parser = parse_zeroizing_string)]
+    pub token: Option<Zeroizing<String>>,
 
     /// Read the token from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]
@@ -75,14 +78,14 @@ pub struct VerifyArgs {
     ///
     /// WARNING: Passing secrets via CLI arguments may expose them in shell
     /// history. Prefer using --secret-env or piping via stdin instead.
-    #[arg(long, value_name = "SECRET")]
-    pub secret: Option<String>,
+    #[arg(long, value_name = "SECRET", value_parser = parse_zeroizing_string)]
+    pub secret: Option<Zeroizing<String>>,
 
     /// Read the HMAC secret from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]
     pub secret_env: Option<String>,
 
-    /// Path to a PEM-encoded public key file (RSA or ECDSA).
+    /// Path to a PEM-encoded public key file (RSA, ECDSA, or EdDSA).
     #[arg(long, value_name = "FILE")]
     pub key_file: Option<PathBuf>,
 
@@ -103,6 +106,11 @@ pub struct VerifyArgs {
     /// Output raw JSON without colors (machine-readable).
     #[arg(long)]
     pub json: bool,
+}
+
+/// Parse a string into a `Zeroizing<String>` for secure CLI arguments.
+fn parse_zeroizing_string(s: &str) -> Result<Zeroizing<String>, std::convert::Infallible> {
+    Ok(Zeroizing::new(s.to_string()))
 }
 
 /// Custom `Debug` that redacts token and secret fields to prevent

@@ -11,16 +11,42 @@ mod core;
 mod display;
 mod error;
 
+use std::process::ExitCode;
+
 use anyhow::Result;
 use clap::Parser;
 
 use cli::{Cli, Commands};
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Parse CLI arguments and dispatch to the appropriate command handler.
+///
+/// Returns `ExitCode` so the caller can exit without `process::exit`,
+/// allowing all destructors (including `Zeroizing`) to run.
+fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Decode(args) => commands::decode::execute(args),
-        Commands::Verify(args) => commands::verify::execute(args),
+        Commands::Decode(args) => {
+            commands::decode::execute(args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Verify(args) => {
+            let signature_valid = commands::verify::execute(args)?;
+            Ok(if signature_valid {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            })
+        }
     }
 }

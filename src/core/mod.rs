@@ -8,5 +8,4 @@ pub mod decoder;
 pub mod jwks;
 #[allow(dead_code)]
 pub mod time_travel;
-#[allow(dead_code)]
 pub mod validator;
