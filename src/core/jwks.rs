@@ -176,9 +176,11 @@ fn find_matching_key<'a>(jwks: &'a JwkSet, kid: Option<&str>) -> Result<&'a Jwk,
 ///
 /// Caps at 128 bytes to prevent excessively long error output from
 /// crafted tokens and mitigate terminal escape sequence injection.
+/// Uses `floor_char_boundary` to avoid panicking on multi-byte UTF-8.
 fn truncate_kid(kid: &str) -> String {
     if kid.len() > 128 {
-        format!("{}...(truncated)", &kid[..128])
+        let end = kid.floor_char_boundary(128);
+        format!("{}...(truncated)", &kid[..end])
     } else {
         kid.to_string()
     }
@@ -435,6 +437,18 @@ mod tests {
         let result = truncate_kid(&long_kid);
         assert!(result.len() < 200);
         assert!(result.ends_with("...(truncated)"));
+    }
+
+    #[test]
+    fn test_truncate_kid_multibyte_utf8() {
+        // Each emoji is 4 bytes; 33 emojis = 132 bytes, exceeds 128
+        let emoji_kid = "\u{1F600}".repeat(33);
+        assert_eq!(emoji_kid.len(), 132);
+        let result = truncate_kid(&emoji_kid);
+        // Must not panic and must end with truncation marker
+        assert!(result.ends_with("...(truncated)"));
+        // The truncated portion must be valid UTF-8 (this assertion is
+        // implicit — if it weren't, the String would not have been created)
     }
 
     // --- Algorithm resolution ---
