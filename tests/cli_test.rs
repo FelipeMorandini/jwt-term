@@ -557,6 +557,12 @@ fn test_verify_key_file_too_large() {
         .stderr(predicate::str::contains("key file too large"));
 }
 
+// These tests are Unix-only because:
+// - /dev/null doesn't exist on Windows
+// - On Windows, File::open on a directory fails with "permission denied"
+//   before the is_file() check runs (still safe — input is rejected)
+
+#[cfg(unix)]
 #[test]
 fn test_verify_key_file_not_regular_file() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
@@ -568,6 +574,7 @@ fn test_verify_key_file_not_regular_file() {
         .stderr(predicate::str::contains("not a regular file"));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_verify_key_file_directory_rejected() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());

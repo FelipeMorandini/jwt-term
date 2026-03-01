@@ -115,6 +115,12 @@ fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> 
                 reason: "not a regular file".to_string(),
             });
         }
+        if metadata.len() > MAX_KEY_FILE_SIZE {
+            return Err(JwtTermError::KeyFileTooLarge {
+                size: metadata.len(),
+                max_size: MAX_KEY_FILE_SIZE,
+            });
+        }
         let bytes = read_bounded_file(file, path)?;
         return Ok(KeyMaterial::PemKey(bytes));
     }
