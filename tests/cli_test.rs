@@ -393,6 +393,38 @@ fn test_verify_es256_valid_key_file() {
         .stdout(predicate::str::contains("ES256"));
 }
 
+// --- Verify: EdDSA Signature Validation ---
+
+#[test]
+fn test_verify_eddsa_valid_key_file() {
+    let token = common::create_eddsa_token(&common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--key-file",
+            common::ED25519_PUBLIC_KEY_PATH,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID SIGNATURE"))
+        .stdout(predicate::str::contains("EdDSA"));
+}
+
+#[test]
+fn test_verify_eddsa_wrong_key_file() {
+    let token = common::create_eddsa_token(&common::standard_claims());
+    // Use EC public key for an EdDSA token — key type mismatch
+    cmd()
+        .args(["verify", &token, "--key-file", common::EC_PUBLIC_KEY_PATH])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("failed to parse EdDSA PEM key")
+                .or(predicate::str::contains("signature validation failed")),
+        );
+}
+
 // --- Verify: JSON Mode ---
 
 #[test]
@@ -505,6 +537,29 @@ fn test_verify_alg_none_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unsupported algorithm"));
+}
+
+// --- Verify: Key File Size Limit ---
+
+#[test]
+fn test_verify_key_file_too_large() {
+    use std::io::Write;
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    let dir = tempfile::tempdir().unwrap();
+    let large_file = dir.path().join("large.pem");
+    // Create a file just over 1 MB
+    let mut f = std::fs::File::create(&large_file).unwrap();
+    f.write_all(&vec![b'A'; 1_048_577]).unwrap();
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--key-file",
+            large_file.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("key file too large"));
 }
 
 // --- Verify: Not Yet Implemented Features ---

@@ -40,7 +40,8 @@ pub enum Commands {
 #[derive(clap::Args)]
 pub struct DecodeArgs {
     /// The JWT token to decode. If omitted, reads from stdin.
-    pub token: Option<String>,
+    #[arg(value_parser = parse_zeroizing_string)]
+    pub token: Option<Zeroizing<String>>,
 
     /// Read the token from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]
@@ -66,7 +67,8 @@ impl fmt::Debug for DecodeArgs {
 #[derive(clap::Args)]
 pub struct VerifyArgs {
     /// The JWT token to verify. If omitted, reads from stdin.
-    pub token: Option<String>,
+    #[arg(value_parser = parse_zeroizing_string)]
+    pub token: Option<Zeroizing<String>>,
 
     /// Read the token from the specified environment variable.
     #[arg(long, value_name = "VAR_NAME")]

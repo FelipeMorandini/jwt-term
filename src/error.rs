@@ -55,6 +55,15 @@ pub enum JwtTermError {
         reason: String,
     },
 
+    /// The key file exceeds the maximum allowed size.
+    #[error("key file too large: {size} bytes exceeds maximum of {max_size} bytes")]
+    KeyFileTooLarge {
+        /// The actual size of the key file in bytes.
+        size: u64,
+        /// The maximum allowed size in bytes.
+        max_size: u64,
+    },
+
     /// Failed to fetch JWKS from the remote endpoint.
     #[error("failed to fetch JWKS from '{url}': {reason}")]
     JwksFetchError {
@@ -310,6 +319,18 @@ mod tests {
             command: "decode".to_string(),
         };
         assert_eq!(err.to_string(), "decode is not yet implemented");
+    }
+
+    #[test]
+    fn test_key_file_too_large_display() {
+        let err = JwtTermError::KeyFileTooLarge {
+            size: 2_000_000,
+            max_size: 1_048_576,
+        };
+        assert_eq!(
+            err.to_string(),
+            "key file too large: 2000000 bytes exceeds maximum of 1048576 bytes"
+        );
     }
 
     #[test]

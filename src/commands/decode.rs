@@ -19,8 +19,11 @@ use super::resolve_token;
 /// Resolves the token from the available input sources, decodes it,
 /// and displays the header, payload, and token status.
 pub fn execute(args: &DecodeArgs) -> Result<()> {
-    let token = resolve_token(args.token.as_deref(), args.token_env.as_deref())
-        .context("failed to read token")?;
+    let token = resolve_token(
+        args.token.as_ref().map(|t| t.as_str()),
+        args.token_env.as_deref(),
+    )
+    .context("failed to read token")?;
 
     let decoded = decoder::decode_token(&token).context("failed to decode token")?;
 

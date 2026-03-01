@@ -18,6 +18,9 @@ use crate::error::JwtTermError;
 
 use super::resolve_token;
 
+/// Maximum key file size in bytes (1 MB).
+const MAX_KEY_FILE_SIZE: u64 = 1_048_576;
+
 /// Execute the `verify` subcommand with the given arguments.
 ///
 /// Resolves the token and key material, validates the signature,
@@ -39,8 +42,11 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
         .into());
     }
 
-    let token = resolve_token(args.token.as_deref(), args.token_env.as_deref())
-        .context("failed to read token")?;
+    let token = resolve_token(
+        args.token.as_ref().map(|t| t.as_str()),
+        args.token_env.as_deref(),
+    )
+    .context("failed to read token")?;
 
     let decoded = decoder::decode_token(&token).context("failed to decode token")?;
 
@@ -93,6 +99,16 @@ fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> 
     }
 
     if let Some(ref path) = args.key_file {
+        let metadata = std::fs::metadata(path).map_err(|e| JwtTermError::KeyFileError {
+            path: path.display().to_string(),
+            reason: super::sanitize_io_error(&e),
+        })?;
+        if metadata.len() > MAX_KEY_FILE_SIZE {
+            return Err(JwtTermError::KeyFileTooLarge {
+                size: metadata.len(),
+                max_size: MAX_KEY_FILE_SIZE,
+            });
+        }
         let bytes = std::fs::read(path).map_err(|e| JwtTermError::KeyFileError {
             path: path.display().to_string(),
             reason: super::sanitize_io_error(&e),

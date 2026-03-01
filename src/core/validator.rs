@@ -415,4 +415,45 @@ mod tests {
             Err(JwtTermError::SignatureInvalid { reason }) if reason.contains("EC PEM")
         ));
     }
+
+    // --- EdDSA validation ---
+
+    #[test]
+    fn test_validate_eddsa_valid_signature() {
+        let private_key = include_str!("../../tests/fixtures/ed25519_private.pem");
+        let public_key = include_str!("../../tests/fixtures/ed25519_public.pem");
+
+        let header = Header::new(Algorithm::EdDSA);
+        let encoding_key = EncodingKey::from_ed_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &test_claims(), &encoding_key).unwrap();
+
+        let key = KeyMaterial::PemKey(public_key.as_bytes().to_vec());
+        let result = validate_signature(&token, "EdDSA", &key).unwrap();
+        assert_eq!(result, ValidationOutcome::Valid);
+    }
+
+    #[test]
+    fn test_validate_eddsa_wrong_key() {
+        let private_key = include_str!("../../tests/fixtures/ed25519_private.pem");
+
+        let header = Header::new(Algorithm::EdDSA);
+        let encoding_key = EncodingKey::from_ed_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &test_claims(), &encoding_key).unwrap();
+
+        // Use EC public key instead of Ed25519 — should fail
+        let wrong_key = include_str!("../../tests/fixtures/ec_public.pem");
+        let key = KeyMaterial::PemKey(wrong_key.as_bytes().to_vec());
+        let result = validate_signature(&token, "EdDSA", &key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_eddsa_invalid_pem() {
+        let key = KeyMaterial::PemKey(b"not-a-valid-pem".to_vec());
+        let result = create_decoding_key(Algorithm::EdDSA, &key);
+        assert!(matches!(
+            result,
+            Err(JwtTermError::SignatureInvalid { reason }) if reason.contains("EdDSA PEM")
+        ));
+    }
 }
