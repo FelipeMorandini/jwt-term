@@ -83,7 +83,7 @@ pub struct VerifyArgs {
     #[arg(long, value_name = "VAR_NAME")]
     pub secret_env: Option<String>,
 
-    /// Path to a PEM-encoded public key file (RSA or ECDSA).
+    /// Path to a PEM-encoded public key file (RSA, ECDSA, or EdDSA).
     #[arg(long, value_name = "FILE")]
     pub key_file: Option<PathBuf>,
 

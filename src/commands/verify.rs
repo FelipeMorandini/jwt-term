@@ -1,8 +1,9 @@
 //! Handler for the `verify` subcommand.
 //!
-//! Verifies a JWT's signature using a shared secret, PEM-encoded
-//! public key, or a remotely fetched JWKS endpoint. Displays the
-//! decoded token contents alongside the validation result.
+//! Verifies a JWT's signature using a shared secret or PEM-encoded
+//! public key. Remote JWKS endpoint validation is planned but not
+//! yet implemented. Displays the decoded token contents alongside
+//! the validation result.
 
 use anyhow::{Context, Result};
 use colored::Colorize;

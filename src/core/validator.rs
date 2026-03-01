@@ -1,8 +1,9 @@
 //! JWT signature validation logic.
 //!
 //! Provides functions to validate JWT signatures using HMAC shared
-//! secrets or PEM-encoded public keys (RSA, ECDSA, EdDSA). Automatically
-//! detects the algorithm from the JWT header.
+//! secrets or PEM-encoded public keys (RSA, ECDSA, EdDSA). The
+//! algorithm is supplied by the caller (typically extracted from
+//! the JWT header during decode/verify).
 
 use std::collections::HashSet;
 
