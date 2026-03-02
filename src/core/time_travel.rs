@@ -73,22 +73,22 @@ pub struct TimeTravelResult {
 /// Returns an error if the expression doesn't match any known format
 /// or if the resulting timestamp would overflow.
 pub fn parse_time_expression(expression: &str) -> Result<TimeTarget, JwtTermError> {
+    if expression.len() > MAX_TIME_EXPRESSION_LEN {
+        return Err(JwtTermError::InvalidTimeExpression {
+            expression: truncate_for_display(expression),
+            reason: format!(
+                "expression too long ({} bytes, max {})",
+                expression.len(),
+                MAX_TIME_EXPRESSION_LEN
+            ),
+        });
+    }
+
     let trimmed = expression.trim();
     if trimmed.is_empty() {
         return Err(JwtTermError::InvalidTimeExpression {
             expression: expression.to_string(),
             reason: "expression cannot be empty".to_string(),
-        });
-    }
-
-    if trimmed.len() > MAX_TIME_EXPRESSION_LEN {
-        return Err(JwtTermError::InvalidTimeExpression {
-            expression: truncate_for_display(trimmed),
-            reason: format!(
-                "expression too long ({} bytes, max {})",
-                trimmed.len(),
-                MAX_TIME_EXPRESSION_LEN
-            ),
         });
     }
 
