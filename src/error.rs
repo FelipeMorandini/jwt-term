@@ -80,6 +80,21 @@ pub enum JwtTermError {
         kid: String,
     },
 
+    /// The JWK is invalid or uses an unsupported key type.
+    #[error("invalid or unsupported JWK: {reason}")]
+    JwksInvalidKey {
+        /// Description of why the key is invalid.
+        reason: String,
+    },
+
+    /// The token does not contain a `kid` header claim, and the JWKS
+    /// contains multiple keys making automatic selection impossible.
+    #[error(
+        "token does not contain a 'kid' (Key ID) header claim, which is required \
+         when the JWKS contains multiple keys"
+    )]
+    JwksMissingKid,
+
     /// Failed to parse a time-travel expression.
     #[error("invalid time expression '{expression}': {reason}")]
     InvalidTimeExpression {
@@ -132,8 +147,15 @@ pub enum JwtTermError {
         reason: String,
     },
 
+    /// Conflicting key sources were provided.
+    #[error("--jwks-url cannot be combined with {conflicting_flag}; use one key source at a time")]
+    ConflictingKeyOptions {
+        /// The flag that conflicts with --jwks-url.
+        conflicting_flag: String,
+    },
+
     /// No key material was provided for signature validation.
-    #[error("no key material provided: use --secret, --secret-env, or --key-file")]
+    #[error("no key material provided: use --secret, --secret-env, --key-file, or --jwks-url")]
     NoKeyProvided,
 
     /// The command is not yet implemented.
@@ -306,11 +328,42 @@ mod tests {
     }
 
     #[test]
+    fn test_conflicting_key_options_display() {
+        let err = JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--secret".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "--jwks-url cannot be combined with --secret; use one key source at a time"
+        );
+    }
+
+    #[test]
     fn test_no_key_provided_display() {
         let err = JwtTermError::NoKeyProvided;
         assert!(err.to_string().contains("no key material provided"));
         assert!(err.to_string().contains("--secret"));
         assert!(err.to_string().contains("--key-file"));
+        assert!(err.to_string().contains("--jwks-url"));
+    }
+
+    #[test]
+    fn test_jwks_invalid_key_display() {
+        let err = JwtTermError::JwksInvalidKey {
+            reason: "unsupported key type".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "invalid or unsupported JWK: unsupported key type"
+        );
+    }
+
+    #[test]
+    fn test_jwks_missing_kid_display() {
+        let err = JwtTermError::JwksMissingKid;
+        assert!(err.to_string().contains("kid"));
+        assert!(err.to_string().contains("Key ID"));
+        assert!(err.to_string().contains("multiple keys"));
     }
 
     #[test]

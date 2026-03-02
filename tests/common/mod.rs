@@ -88,3 +88,19 @@ pub fn standard_claims() -> serde_json::Value {
         "iat": 1516239022
     })
 }
+
+/// Create an HS256-signed token with a `kid` header claim.
+pub fn create_hs256_token_with_kid(secret: &str, kid: &str, claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    let mut header = Header::new(Algorithm::HS256);
+    header.kid = Some(kid.to_string());
+    let key = EncodingKey::from_secret(secret.as_bytes());
+    encode(&header, claims, &key).unwrap()
+}
+
+/// Build a JWKS JSON string containing one HMAC (oct) key.
+pub fn hmac_jwks_json(kid: &str, secret: &str) -> String {
+    use base64::Engine;
+    let k = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret.as_bytes());
+    format!(r#"{{"keys":[{{"kty":"oct","kid":"{kid}","alg":"HS256","k":"{k}"}}]}}"#)
+}
