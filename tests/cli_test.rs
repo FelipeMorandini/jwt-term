@@ -1077,3 +1077,21 @@ fn test_verify_invalid_exits_with_nonzero() {
         .assert()
         .failure();
 }
+
+#[test]
+fn test_verify_time_travel_rejects_flag_like_value() {
+    // "--json" should not be consumed as the time-travel expression
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("looks like a flag"));
+}

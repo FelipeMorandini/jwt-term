@@ -103,7 +103,9 @@ pub struct VerifyArgs {
     //
     // allow_hyphen_values: negative relative expressions (e.g., "-1h")
     // must not be interpreted as unknown CLI flags by clap.
-    #[arg(long, value_name = "EXPR", allow_hyphen_values = true)]
+    // value_parser: reject values that look like flags (e.g., "--json")
+    // so omitting the expression doesn't silently consume the next flag.
+    #[arg(long, value_name = "EXPR", allow_hyphen_values = true, value_parser = validate_time_travel_value)]
     pub time_travel: Option<String>,
 
     /// Output raw JSON without colors (machine-readable).
@@ -114,6 +116,21 @@ pub struct VerifyArgs {
 /// Parse a string into a `Zeroizing<String>` for secure CLI arguments.
 fn parse_zeroizing_string(s: &str) -> Result<Zeroizing<String>, std::convert::Infallible> {
     Ok(Zeroizing::new(s.to_string()))
+}
+
+/// Validate that a `--time-travel` value doesn't look like a flag.
+///
+/// With `allow_hyphen_values = true`, clap will accept `--time-travel --json`
+/// and treat `--json` as the expression value. This parser rejects values that
+/// start with `--` so the user gets a clear error instead.
+fn validate_time_travel_value(s: &str) -> Result<String, String> {
+    if s.starts_with("--") {
+        return Err(format!(
+            "'{s}' looks like a flag, not a time expression; \
+             use a relative (+7d, -1h), ISO 8601, or Unix epoch value"
+        ));
+    }
+    Ok(s.to_string())
 }
 
 /// Custom `Debug` that redacts token and secret fields to prevent

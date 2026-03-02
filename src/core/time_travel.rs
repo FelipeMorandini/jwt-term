@@ -216,7 +216,10 @@ fn try_parse_relative(expr: &str, sanitized: &str) -> Result<Option<TimeTarget>,
     if !number_str.bytes().all(|b| b.is_ascii_digit()) {
         return Err(JwtTermError::InvalidTimeExpression {
             expression: sanitized.to_string(),
-            reason: format!("'{}' is not a valid number", number_str),
+            reason: format!(
+                "'{}' is not a valid number",
+                sanitize_expression(number_str)
+            ),
         });
     }
 
@@ -224,7 +227,10 @@ fn try_parse_relative(expr: &str, sanitized: &str) -> Result<Option<TimeTarget>,
         .parse()
         .map_err(|_| JwtTermError::InvalidTimeExpression {
             expression: sanitized.to_string(),
-            reason: format!("'{}' is not a valid number", number_str),
+            reason: format!(
+                "'{}' is not a valid number",
+                sanitize_expression(number_str)
+            ),
         })?;
 
     let delta_seconds = unit_to_seconds(value, unit, sanitized)?;
@@ -240,11 +246,16 @@ fn unit_to_seconds(value: i64, unit: char, sanitized_expr: &str) -> Result<i64, 
         'd' => value.checked_mul(86400),
         'y' => value.checked_mul(365 * 86400),
         _ => {
+            let safe_unit = if unit.is_control() {
+                format!("\\u{{{:04X}}}", unit as u32)
+            } else {
+                unit.to_string()
+            };
             return Err(JwtTermError::InvalidTimeExpression {
                 expression: sanitized_expr.to_string(),
                 reason: format!(
                     "unknown unit '{}'; expected 's', 'm', 'h', 'd', or 'y'",
-                    unit
+                    safe_unit
                 ),
             });
         }
@@ -836,6 +847,35 @@ mod tests {
             JwtTermError::InvalidTimeExpression { expression, .. } => {
                 // Should use trimmed (empty) string, not raw whitespace
                 assert_eq!(expression, "");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_number_str_with_control_chars_is_sanitized_in_reason() {
+        // "+\x1b[31mh" — number_str is "\x1b[31m", which fails digits-only check
+        let input = "+\x1b[31mh";
+        let err = parse_time_expression(input).unwrap_err();
+        match err {
+            JwtTermError::InvalidTimeExpression { reason, .. } => {
+                assert!(!reason.chars().any(|c| c.is_control()));
+                assert!(reason.contains("not a valid number"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_control_char_unit_is_sanitized_in_reason() {
+        // "+7\x1b" — unit is ESC (\x1b), which is an unknown unit
+        let input = "+7\x1b";
+        let err = parse_time_expression(input).unwrap_err();
+        match err {
+            JwtTermError::InvalidTimeExpression { reason, .. } => {
+                assert!(!reason.chars().any(|c| c.is_control()));
+                assert!(reason.contains("unknown unit"));
+                assert!(reason.contains("\\u{001B}"));
             }
             other => panic!("unexpected error: {other}"),
         }

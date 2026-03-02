@@ -44,8 +44,10 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
     .context("failed to read token")?;
 
     let decoded = decoder::decode_token(&token).context("failed to decode token")?;
-    let (outcome, display_algorithm) = validate_token(&token, &decoded, args)?;
+    // Parse time-travel before signature validation so invalid expressions
+    // fail fast without triggering unnecessary JWKS network calls.
     let tt_result = resolve_time_travel(args.time_travel.as_deref(), &decoded.payload)?;
+    let (outcome, display_algorithm) = validate_token(&token, &decoded, args)?;
 
     if args.json {
         display_json(&decoded, &outcome, &display_algorithm, tt_result.as_ref());
