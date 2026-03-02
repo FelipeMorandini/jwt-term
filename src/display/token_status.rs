@@ -7,6 +7,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use colored::Colorize;
 use serde_json::Value;
 
+use crate::core::time_travel::{ClaimStatus, TimeTravelResult};
 use crate::core::validator::ValidationOutcome;
 
 /// Display the temporal status of a JWT's claims.
@@ -122,6 +123,123 @@ fn format_duration(duration: TimeDelta) -> String {
     }
 }
 
+/// Display time-travel evaluation results with color coding.
+///
+/// Shows the simulated timestamp, the original expression, and
+/// the status of `exp` and `nbf` claims at that simulated time.
+pub fn display_time_travel_status(result: &TimeTravelResult) {
+    let expression = sanitize_for_terminal(&result.target.expression);
+    println!(
+        "  {} {} ({})",
+        "Simulating:".bold(),
+        format_timestamp(result.target.timestamp),
+        expression
+    );
+
+    display_tt_exp(&result.exp_status);
+    display_tt_nbf(&result.nbf_status);
+}
+
+/// Sanitize a string for safe terminal display by removing control characters.
+///
+/// Replaces control characters (including ANSI escape sequences) with the
+/// Unicode replacement character while preserving printable content.
+fn sanitize_for_terminal(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
+/// Display the `exp` claim status at a simulated time.
+fn display_tt_exp(status: &ClaimStatus) {
+    match status {
+        ClaimStatus::Expired { elapsed } => {
+            let ago = format_duration(*elapsed);
+            println!(
+                "  {} {} ({})",
+                "Expires:  ".bold(),
+                "EXPIRED at simulated time".red().bold(),
+                format!("expired {} before simulated time", ago).red()
+            );
+        }
+        ClaimStatus::Valid => {
+            println!(
+                "  {} {}",
+                "Expires:  ".bold(),
+                "VALID at simulated time".green().bold(),
+            );
+        }
+        ClaimStatus::Absent => {
+            println!(
+                "  {} {}",
+                "Expires:  ".bold(),
+                "no exp claim present".dimmed()
+            );
+        }
+        ClaimStatus::Invalid => {
+            println!(
+                "  {} {}",
+                "Expires:  ".bold(),
+                "INVALID exp value".red().bold()
+            );
+        }
+        ClaimStatus::NotYetValid { remaining } => {
+            let until = format_duration(*remaining);
+            println!(
+                "  {} {} ({})",
+                "Expires:  ".bold(),
+                "NOT YET VALID at simulated time".yellow().bold(),
+                format!("expires in {}", until).yellow()
+            );
+        }
+    }
+}
+
+/// Display the `nbf` claim status at a simulated time.
+fn display_tt_nbf(status: &ClaimStatus) {
+    match status {
+        ClaimStatus::NotYetValid { remaining } => {
+            let until = format_duration(*remaining);
+            println!(
+                "  {} {} ({})",
+                "Not before:".bold(),
+                "NOT YET VALID at simulated time".yellow().bold(),
+                format!("becomes valid in {}", until).yellow()
+            );
+        }
+        ClaimStatus::Valid => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "VALID at simulated time".green().bold(),
+            );
+        }
+        ClaimStatus::Absent => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "no nbf claim present".dimmed()
+            );
+        }
+        ClaimStatus::Invalid => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "INVALID nbf value".red().bold()
+            );
+        }
+        ClaimStatus::Expired { elapsed } => {
+            let ago = format_duration(*elapsed);
+            println!(
+                "  {} {} ({})",
+                "Not before:".bold(),
+                "EXPIRED at simulated time".red().bold(),
+                format!("expired {} before simulated time", ago).red()
+            );
+        }
+    }
+}
+
 /// Return "s" for plural or "" for singular.
 fn pluralize(n: u64) -> &'static str {
     if n == 1 { "" } else { "s" }
@@ -201,5 +319,22 @@ mod tests {
         assert_eq!(pluralize(1), "");
         assert_eq!(pluralize(2), "s");
         assert_eq!(pluralize(100), "s");
+    }
+
+    #[test]
+    fn test_sanitize_for_terminal_replaces_control_chars() {
+        let input = "+7d\x1b[31m\x00injected";
+        let result = sanitize_for_terminal(input);
+        assert!(!result.chars().any(|c| c.is_control()));
+        assert!(result.contains("+7d"));
+    }
+
+    #[test]
+    fn test_sanitize_for_terminal_preserves_normal_input() {
+        assert_eq!(sanitize_for_terminal("+7d"), "+7d");
+        assert_eq!(
+            sanitize_for_terminal("2024-06-01T00:00:00Z"),
+            "2024-06-01T00:00:00Z"
+        );
     }
 }

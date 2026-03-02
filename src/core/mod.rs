@@ -5,7 +5,6 @@
 
 pub mod decoder;
 pub mod jwks;
-#[allow(dead_code)]
 pub mod time_travel;
 pub mod validator;
 
