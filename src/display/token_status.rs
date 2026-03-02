@@ -148,7 +148,7 @@ fn display_tt_exp(status: &ClaimStatus) {
                 "  {} {} ({})",
                 "Expiry:    ".bold(),
                 "EXPIRED at simulated time".red().bold(),
-                format!("expired {} before", ago).red()
+                format!("expired {} before simulated time", ago).red()
             );
         }
         ClaimStatus::Valid => {
@@ -180,7 +180,7 @@ fn display_tt_nbf(status: &ClaimStatus) {
                 "  {} {} ({})",
                 "Not before:".bold(),
                 "NOT YET VALID at simulated time".yellow().bold(),
-                format!("valid {} after", until).yellow()
+                format!("becomes valid in {}", until).yellow()
             );
         }
         ClaimStatus::Valid => {

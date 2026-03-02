@@ -311,58 +311,64 @@ mod tests {
 
     #[test]
     fn test_parse_relative_days() {
+        let now = Utc::now();
         let result = parse_time_expression("+7d").unwrap();
         assert_eq!(result.expression, "+7d");
-        // Should be approximately 7 days from now (within 2 seconds tolerance)
-        let expected = Utc::now() + TD::days(7);
+        // Should be approximately 7 days from the captured `now` (within 2 seconds tolerance)
+        let expected = now + TD::days(7);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2, "expected ~7d from now, diff was {diff}s");
     }
 
     #[test]
     fn test_parse_relative_negative_days() {
+        let now = Utc::now();
         let result = parse_time_expression("-3d").unwrap();
-        let expected = Utc::now() - TD::days(3);
+        let expected = now - TD::days(3);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2, "expected ~3d ago, diff was {diff}s");
     }
 
     #[test]
     fn test_parse_relative_hours() {
+        let now = Utc::now();
         let result = parse_time_expression("+1h").unwrap();
-        let expected = Utc::now() + TD::hours(1);
+        let expected = now + TD::hours(1);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2);
     }
 
     #[test]
     fn test_parse_relative_minutes() {
+        let now = Utc::now();
         let result = parse_time_expression("+30m").unwrap();
-        let expected = Utc::now() + TD::minutes(30);
+        let expected = now + TD::minutes(30);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2);
     }
 
     #[test]
     fn test_parse_relative_seconds() {
+        let now = Utc::now();
         let result = parse_time_expression("-5s").unwrap();
-        let expected = Utc::now() - TD::seconds(5);
+        let expected = now - TD::seconds(5);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2);
     }
 
     #[test]
     fn test_parse_relative_years() {
+        let now = Utc::now();
         let result = parse_time_expression("+1y").unwrap();
-        let expected = Utc::now() + TD::days(365);
+        let expected = now + TD::days(365);
         let diff = (result.timestamp - expected).num_seconds().abs();
         assert!(diff < 2);
     }
 
     #[test]
     fn test_parse_relative_zero() {
-        let result = parse_time_expression("+0d").unwrap();
         let now = Utc::now();
+        let result = parse_time_expression("+0d").unwrap();
         let diff = (result.timestamp - now).num_seconds().abs();
         assert!(diff < 2, "+0d should be approximately now");
     }
