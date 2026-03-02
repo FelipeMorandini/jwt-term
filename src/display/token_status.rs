@@ -165,6 +165,15 @@ fn display_tt_exp(status: &ClaimStatus) {
                 "no exp claim present".dimmed()
             );
         }
+        ClaimStatus::Invalid => {
+            println!(
+                "  {} {}",
+                "Expiry:    ".bold(),
+                "INVALID exp value (out of representable range)"
+                    .red()
+                    .bold()
+            );
+        }
         ClaimStatus::NotYetValid { .. } => {
             unreachable!("evaluate_temporal_claims never produces NotYetValid for exp")
         }
@@ -195,6 +204,15 @@ fn display_tt_nbf(status: &ClaimStatus) {
                 "  {} {}",
                 "Not before:".bold(),
                 "no nbf claim present".dimmed()
+            );
+        }
+        ClaimStatus::Invalid => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "INVALID nbf value (out of representable range)"
+                    .red()
+                    .bold()
             );
         }
         ClaimStatus::Expired { .. } => {

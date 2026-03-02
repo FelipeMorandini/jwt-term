@@ -39,6 +39,11 @@ pub enum ClaimStatus {
     },
     /// The claim is not present in the token payload.
     Absent,
+    /// The claim is present but its value cannot be represented as a DateTime.
+    ///
+    /// This occurs when the timestamp is outside the representable range
+    /// for `DateTime<Utc>` (e.g., extreme i64 values).
+    Invalid,
 }
 
 /// Result of evaluating temporal claims against a simulated timestamp.
@@ -114,29 +119,35 @@ pub fn evaluate_temporal_claims(payload: &Value, target: &TimeTarget) -> TimeTra
     let exp_value = extract_timestamp_value(payload, "exp");
     let nbf_value = extract_timestamp_value(payload, "nbf");
 
-    let exp_status = match exp_value.and_then(|ts| DateTime::from_timestamp(ts, 0)) {
-        Some(exp_dt) => {
-            if target.timestamp >= exp_dt {
-                ClaimStatus::Expired {
-                    elapsed: target.timestamp.signed_duration_since(exp_dt),
+    let exp_status = match exp_value {
+        Some(ts) => match DateTime::from_timestamp(ts, 0) {
+            Some(exp_dt) => {
+                if target.timestamp >= exp_dt {
+                    ClaimStatus::Expired {
+                        elapsed: target.timestamp.signed_duration_since(exp_dt),
+                    }
+                } else {
+                    ClaimStatus::Valid
                 }
-            } else {
-                ClaimStatus::Valid
             }
-        }
+            None => ClaimStatus::Invalid,
+        },
         None => ClaimStatus::Absent,
     };
 
-    let nbf_status = match nbf_value.and_then(|ts| DateTime::from_timestamp(ts, 0)) {
-        Some(nbf_dt) => {
-            if target.timestamp < nbf_dt {
-                ClaimStatus::NotYetValid {
-                    remaining: nbf_dt.signed_duration_since(target.timestamp),
+    let nbf_status = match nbf_value {
+        Some(ts) => match DateTime::from_timestamp(ts, 0) {
+            Some(nbf_dt) => {
+                if target.timestamp < nbf_dt {
+                    ClaimStatus::NotYetValid {
+                        remaining: nbf_dt.signed_duration_since(target.timestamp),
+                    }
+                } else {
+                    ClaimStatus::Valid
                 }
-            } else {
-                ClaimStatus::Valid
             }
-        }
+            None => ClaimStatus::Invalid,
+        },
         None => ClaimStatus::Absent,
     };
 
@@ -167,6 +178,13 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
     }
 
     let unit = expr.chars().last().unwrap_or('\0');
+
+    // If the last character is a digit, this isn't a relative expression
+    // (e.g., "-1705312200" should fall through to the epoch parser).
+    if unit.is_ascii_digit() {
+        return Ok(None);
+    }
+
     let number_str = &expr[sign.len_utf8()..expr.len() - unit.len_utf8()];
 
     if number_str.is_empty() {
@@ -374,6 +392,15 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_signed_digit_only_falls_through_to_epoch() {
+        // "+1705312200" has a digit as last char, so try_parse_relative
+        // returns Ok(None). It then falls through to try_parse_unix_epoch
+        // where i64::parse accepts the leading "+".
+        let result = parse_time_expression("+1705312200").unwrap();
+        assert_eq!(result.timestamp.timestamp(), 1705312200);
+    }
+
+    #[test]
     fn test_parse_relative_unknown_unit() {
         let err = parse_time_expression("+7x").unwrap_err();
         assert!(matches!(
@@ -446,11 +473,13 @@ mod tests {
     #[test]
     fn test_parse_unix_epoch_negative_rejected() {
         let err = parse_time_expression("-1705312200").unwrap_err();
-        // This should be parsed as a relative expression with large number and unit '0'
-        // OR as a negative unix epoch, depending on parsing order.
-        // Since '-' prefix triggers relative parsing first, and the last char is '0'
-        // which is not a valid unit, it will error with "unknown unit"
-        assert!(matches!(err, JwtTermError::InvalidTimeExpression { .. }));
+        // The digit-unit check in try_parse_relative lets this fall through
+        // to try_parse_unix_epoch, which gives a clear error message.
+        assert!(matches!(
+            err,
+            JwtTermError::InvalidTimeExpression { reason, .. }
+                if reason.contains("non-negative")
+        ));
     }
 
     // --- Error cases ---
@@ -591,6 +620,31 @@ mod tests {
         let result = evaluate_temporal_claims(&payload, &target);
         assert_eq!(result.exp_value, Some(1800000000));
         assert_eq!(result.nbf_value, Some(1600000000));
+    }
+
+    #[test]
+    fn test_evaluate_invalid_exp_timestamp() {
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1700000000, 0).unwrap(),
+            expression: "1700000000".to_string(),
+        };
+        // i64::MAX is outside the representable DateTime range
+        let payload = json!({"exp": i64::MAX});
+        let result = evaluate_temporal_claims(&payload, &target);
+        assert_eq!(result.exp_status, ClaimStatus::Invalid);
+        assert_eq!(result.exp_value, Some(i64::MAX));
+    }
+
+    #[test]
+    fn test_evaluate_invalid_nbf_timestamp() {
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1700000000, 0).unwrap(),
+            expression: "1700000000".to_string(),
+        };
+        let payload = json!({"nbf": i64::MIN});
+        let result = evaluate_temporal_claims(&payload, &target);
+        assert_eq!(result.nbf_status, ClaimStatus::Invalid);
+        assert_eq!(result.nbf_value, Some(i64::MIN));
     }
 
     #[test]
