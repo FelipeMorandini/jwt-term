@@ -54,11 +54,21 @@ pub struct TimeTravelResult {
     pub target: TimeTarget,
     /// Status of the `exp` claim at the target time.
     pub exp_status: ClaimStatus,
-    /// The raw `exp` claim value, if present.
+    /// The parsed `exp` claim value as numeric seconds since the Unix epoch.
+    ///
+    /// Derived from the JSON claim by [`extract_timestamp_value`], which
+    /// truncates floating-point numbers to whole seconds. `None` when the
+    /// `exp` claim is absent or present but not usable as a timestamp
+    /// (in which case `exp_status` will be [`ClaimStatus::Invalid`]).
     pub exp_value: Option<i64>,
     /// Status of the `nbf` claim at the target time.
     pub nbf_status: ClaimStatus,
-    /// The raw `nbf` claim value, if present.
+    /// The parsed `nbf` claim value as numeric seconds since the Unix epoch.
+    ///
+    /// Derived from the JSON claim by [`extract_timestamp_value`], which
+    /// truncates floating-point numbers to whole seconds. `None` when the
+    /// `nbf` claim is absent or present but not usable as a timestamp
+    /// (in which case `nbf_status` will be [`ClaimStatus::Invalid`]).
     pub nbf_value: Option<i64>,
 }
 
@@ -88,25 +98,28 @@ pub fn parse_time_expression(expression: &str) -> Result<TimeTarget, JwtTermErro
     let trimmed = expression.trim();
     if trimmed.is_empty() {
         return Err(JwtTermError::InvalidTimeExpression {
-            expression: expression.to_string(),
+            expression: trimmed.to_string(),
             reason: "expression cannot be empty".to_string(),
         });
     }
 
-    if let Some(target) = try_parse_relative(trimmed)? {
+    // Sanitize once for use in all error paths and the stored expression.
+    let sanitized = sanitize_expression(trimmed);
+
+    if let Some(target) = try_parse_relative(trimmed, &sanitized)? {
         return Ok(target);
     }
 
-    if let Some(target) = try_parse_iso8601(trimmed) {
+    if let Some(target) = try_parse_iso8601(trimmed, &sanitized) {
         return Ok(target);
     }
 
-    if let Some(target) = try_parse_unix_epoch(trimmed)? {
+    if let Some(target) = try_parse_unix_epoch(trimmed, &sanitized)? {
         return Ok(target);
     }
 
     Err(JwtTermError::InvalidTimeExpression {
-        expression: expression.to_string(),
+        expression: sanitized,
         reason: "expected relative expression (+7d, -1h), ISO 8601 timestamp, or Unix epoch"
             .to_string(),
     })
@@ -168,7 +181,7 @@ pub fn evaluate_temporal_claims(payload: &Value, target: &TimeTarget) -> TimeTra
 ///
 /// Returns `Ok(Some(target))` on success, `Ok(None)` if the expression
 /// doesn't look relative, or `Err` if parsing fails (e.g., overflow).
-fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
+fn try_parse_relative(expr: &str, sanitized: &str) -> Result<Option<TimeTarget>, JwtTermError> {
     let sign = expr.chars().next().unwrap_or('\0');
     if sign != '+' && sign != '-' {
         return Ok(None);
@@ -176,7 +189,7 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
 
     if expr.len() < 2 {
         return Err(JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: "relative expression too short".to_string(),
         });
     }
@@ -193,7 +206,7 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
 
     if number_str.is_empty() {
         return Err(JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: "missing numeric value".to_string(),
         });
     }
@@ -202,7 +215,7 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
     // is already captured in `sign`, so the numeric part must be digits only.
     if !number_str.bytes().all(|b| b.is_ascii_digit()) {
         return Err(JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: format!("'{}' is not a valid number", number_str),
         });
     }
@@ -210,16 +223,16 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
     let value: i64 = number_str
         .parse()
         .map_err(|_| JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: format!("'{}' is not a valid number", number_str),
         })?;
 
-    let delta_seconds = unit_to_seconds(value, unit, expr)?;
-    apply_signed_delta(sign, delta_seconds, expr).map(Some)
+    let delta_seconds = unit_to_seconds(value, unit, sanitized)?;
+    apply_signed_delta(sign, delta_seconds, sanitized).map(Some)
 }
 
 /// Convert a numeric value and time unit character to total seconds.
-fn unit_to_seconds(value: i64, unit: char, expr: &str) -> Result<i64, JwtTermError> {
+fn unit_to_seconds(value: i64, unit: char, sanitized_expr: &str) -> Result<i64, JwtTermError> {
     let seconds = match unit {
         's' => Some(value),
         'm' => value.checked_mul(60),
@@ -228,7 +241,7 @@ fn unit_to_seconds(value: i64, unit: char, expr: &str) -> Result<i64, JwtTermErr
         'y' => value.checked_mul(365 * 86400),
         _ => {
             return Err(JwtTermError::InvalidTimeExpression {
-                expression: expr.to_string(),
+                expression: sanitized_expr.to_string(),
                 reason: format!(
                     "unknown unit '{}'; expected 's', 'm', 'h', 'd', or 'y'",
                     unit
@@ -238,7 +251,7 @@ fn unit_to_seconds(value: i64, unit: char, expr: &str) -> Result<i64, JwtTermErr
     };
 
     seconds.ok_or_else(|| JwtTermError::InvalidTimeExpression {
-        expression: expr.to_string(),
+        expression: sanitized_expr.to_string(),
         reason: "value too large, would overflow".to_string(),
     })
 }
@@ -247,13 +260,13 @@ fn unit_to_seconds(value: i64, unit: char, expr: &str) -> Result<i64, JwtTermErr
 fn apply_signed_delta(
     sign: char,
     delta_seconds: i64,
-    expr: &str,
+    sanitized_expr: &str,
 ) -> Result<TimeTarget, JwtTermError> {
     let signed = if sign == '-' {
         delta_seconds
             .checked_neg()
             .ok_or_else(|| JwtTermError::InvalidTimeExpression {
-                expression: expr.to_string(),
+                expression: sanitized_expr.to_string(),
                 reason: "value too large, would overflow".to_string(),
             })?
     } else {
@@ -262,7 +275,7 @@ fn apply_signed_delta(
 
     let delta =
         TimeDelta::try_seconds(signed).ok_or_else(|| JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized_expr.to_string(),
             reason: "duration out of representable range".to_string(),
         })?;
 
@@ -270,20 +283,20 @@ fn apply_signed_delta(
     now.checked_add_signed(delta)
         .map(|timestamp| TimeTarget {
             timestamp,
-            expression: expr.to_string(),
+            expression: sanitized_expr.to_string(),
         })
         .ok_or_else(|| JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized_expr.to_string(),
             reason: "resulting timestamp out of range".to_string(),
         })
 }
 
 /// Try to parse an ISO 8601 datetime string.
-fn try_parse_iso8601(expr: &str) -> Option<TimeTarget> {
+fn try_parse_iso8601(expr: &str, sanitized: &str) -> Option<TimeTarget> {
     let dt: DateTime<Utc> = expr.parse().ok()?;
     Some(TimeTarget {
         timestamp: dt,
-        expression: expr.to_string(),
+        expression: sanitized.to_string(),
     })
 }
 
@@ -291,7 +304,7 @@ fn try_parse_iso8601(expr: &str) -> Option<TimeTarget> {
 ///
 /// Returns `Ok(Some(target))` on success, `Ok(None)` if the expression
 /// doesn't look like a Unix timestamp, or `Err` on overflow.
-fn try_parse_unix_epoch(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
+fn try_parse_unix_epoch(expr: &str, sanitized: &str) -> Result<Option<TimeTarget>, JwtTermError> {
     let value: i64 = match expr.parse() {
         Ok(v) => v,
         Err(_) => return Ok(None),
@@ -299,20 +312,20 @@ fn try_parse_unix_epoch(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> 
 
     if value < 0 {
         return Err(JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: "Unix timestamps must be non-negative".to_string(),
         });
     }
 
     let timestamp =
         DateTime::from_timestamp(value, 0).ok_or_else(|| JwtTermError::InvalidTimeExpression {
-            expression: expr.to_string(),
+            expression: sanitized.to_string(),
             reason: "Unix timestamp out of representable range".to_string(),
         })?;
 
     Ok(Some(TimeTarget {
         timestamp,
-        expression: expr.to_string(),
+        expression: sanitized.to_string(),
     }))
 }
 
@@ -342,15 +355,28 @@ fn extract_timestamp_value(payload: &Value, claim: &str) -> Option<i64> {
     None
 }
 
+/// Sanitize a time expression for safe terminal display and error messages.
+///
+/// Replaces control characters (including ANSI escape sequences) with the
+/// Unicode replacement character, consistent with `sanitize_kid` in JWKS.
+fn sanitize_expression(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 /// Truncate a string for safe inclusion in error messages.
+///
+/// Sanitizes control characters before truncation.
 fn truncate_for_display(s: &str) -> String {
     const MAX_DISPLAY: usize = 32;
-    if s.len() <= MAX_DISPLAY {
-        return s.to_string();
+    let clean = sanitize_expression(s);
+    if clean.len() <= MAX_DISPLAY {
+        return clean;
     }
     // Find a valid char boundary at or before MAX_DISPLAY
-    let end = s.floor_char_boundary(MAX_DISPLAY);
-    format!("{}...", &s[..end])
+    let end = clean.floor_char_boundary(MAX_DISPLAY);
+    format!("{}...", &clean[..end])
 }
 
 #[cfg(test)]
@@ -769,5 +795,49 @@ mod tests {
         let result = evaluate_temporal_claims(&payload, &target);
         assert_eq!(result.exp_status, ClaimStatus::Valid);
         assert_eq!(result.exp_value, Some(1700000000));
+    }
+
+    // --- Expression sanitization ---
+
+    #[test]
+    fn test_sanitize_expression_replaces_control_chars() {
+        let input = "+7d\x1b[31m\x00injected";
+        let result = sanitize_expression(input);
+        // \x1b (ESC) and \x00 (NUL) are control chars → replaced with U+FFFD
+        // '[', '3', '1', 'm' are printable → preserved
+        assert_eq!(result, "+7d\u{FFFD}[31m\u{FFFD}injected");
+        // Confirm no control characters remain
+        assert!(!result.chars().any(|c| c.is_control()));
+    }
+
+    #[test]
+    fn test_sanitize_expression_preserves_normal_input() {
+        let input = "+7d";
+        assert_eq!(sanitize_expression(input), "+7d");
+    }
+
+    #[test]
+    fn test_expression_with_ansi_escape_is_sanitized_in_error() {
+        let input = "+7\x1b[31mx";
+        let err = parse_time_expression(input).unwrap_err();
+        match err {
+            JwtTermError::InvalidTimeExpression { expression, .. } => {
+                // The ANSI escape should be replaced, not passed through
+                assert!(!expression.chars().any(|c| c.is_control()));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_whitespace_only_error_uses_trimmed_expression() {
+        let err = parse_time_expression("   ").unwrap_err();
+        match err {
+            JwtTermError::InvalidTimeExpression { expression, .. } => {
+                // Should use trimmed (empty) string, not raw whitespace
+                assert_eq!(expression, "");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 }
