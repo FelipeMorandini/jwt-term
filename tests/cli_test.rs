@@ -740,16 +740,296 @@ fn test_verify_jwks_conflicts_with_key_file() {
         .stderr(predicate::str::contains("--key-file"));
 }
 
-// --- Verify: Not Yet Implemented Features ---
+// --- Verify: Time Travel ---
 
 #[test]
-fn test_verify_time_travel_not_implemented() {
+fn test_verify_time_travel_relative_days() {
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_future_exp());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "+7d",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Time Travel"))
+        .stdout(predicate::str::contains("Simulating"));
+}
+
+#[test]
+fn test_verify_time_travel_shows_expired_at_simulated_time() {
+    // Token expires at 1600000000 (~2020-09-13), simulate far future
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_past_exp());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "2000000000",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("EXPIRED at simulated time"));
+}
+
+#[test]
+fn test_verify_time_travel_shows_valid_at_simulated_time() {
+    // Token expires at 2000000000 (~2033), simulate a time before that
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_future_exp());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "1900000000",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VALID at simulated time"));
+}
+
+#[test]
+fn test_verify_time_travel_absolute_iso8601() {
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_future_exp());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "2024-06-01T00:00:00Z",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Simulating"))
+        .stdout(predicate::str::contains("2024-06-01"));
+}
+
+#[test]
+fn test_verify_time_travel_nbf_not_yet_valid() {
+    // Token has nbf=1700000000, simulate a time before that
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_exp_and_nbf());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "1600000000",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NOT YET VALID at simulated time"));
+}
+
+#[test]
+fn test_verify_time_travel_no_temporal_claims() {
+    // Standard claims have no exp/nbf
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
     cmd()
-        .args(["verify", &token, "--secret", "test", "--time-travel", "+7d"])
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "+1d",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Time Travel"))
+        .stdout(predicate::str::contains("no exp claim present"))
+        .stdout(predicate::str::contains("no nbf claim present"));
+}
+
+#[test]
+fn test_verify_time_travel_json_mode() {
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_future_exp());
+    let output = cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "1900000000",
+            "--json",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert!(parsed.get("time_travel").is_some());
+    assert!(parsed["time_travel"]["simulated_time"].is_string());
+    assert_eq!(parsed["time_travel"]["expression"], "1900000000");
+    assert_eq!(parsed["time_travel"]["exp"]["status"], "valid");
+}
+
+#[test]
+fn test_verify_time_travel_json_mode_expired() {
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_past_exp());
+    let output = cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "2000000000",
+            "--json",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(parsed["time_travel"]["exp"]["status"], "expired");
+    assert_eq!(parsed["time_travel"]["exp"]["claim_value"], 1600000000);
+}
+
+#[test]
+fn test_verify_time_travel_invalid_expression() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "tomorrow",
+        ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("time-travel expression"));
+}
+
+#[test]
+fn test_verify_time_travel_empty_expression() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("time-travel expression"));
+}
+
+#[test]
+fn test_verify_time_travel_exit_code_based_on_signature() {
+    // Time travel should NOT affect exit code — exit code is based on signature validity
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_past_exp());
+    // Valid signature, expired at simulated time — should still exit 0
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "2000000000",
+        ])
+        .assert()
+        .success();
+
+    // Wrong secret — should exit 1 regardless of time travel
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            "wrong-secret",
+            "--time-travel",
+            "2000000000",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_verify_time_travel_without_key_errors() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--time-travel", "+7d"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no key material provided"));
+}
+
+#[test]
+fn test_verify_time_travel_negative_relative() {
+    let token =
+        common::create_hs256_token(common::HMAC_TEST_SECRET, &common::claims_with_future_exp());
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--time-travel",
+            "-1h",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Simulating"))
+        .stdout(predicate::str::contains("Time Travel"));
+}
+
+#[test]
+fn test_verify_without_time_travel_has_no_time_travel_section() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    cmd()
+        .args(["verify", &token, "--secret", common::HMAC_TEST_SECRET])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Time Travel").not());
+}
+
+#[test]
+fn test_verify_without_time_travel_json_has_no_time_travel_field() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    let output = cmd()
+        .args([
+            "verify",
+            &token,
+            "--secret",
+            common::HMAC_TEST_SECRET,
+            "--json",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert!(parsed.get("time_travel").is_none());
 }
 
 // --- Exit Codes ---

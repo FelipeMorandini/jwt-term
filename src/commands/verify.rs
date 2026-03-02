@@ -13,6 +13,7 @@ use serde_json::json;
 use zeroize::Zeroizing;
 
 use crate::cli::VerifyArgs;
+use crate::core::time_travel::{self, ClaimStatus, TimeTravelResult};
 use crate::core::validator::{KeyMaterial, ValidationOutcome};
 use crate::core::{decoder, jwks, validator};
 use crate::display::{json_printer, token_status};
@@ -27,16 +28,11 @@ const MAX_KEY_FILE_SIZE: u64 = 1_048_576;
 ///
 /// Resolves the token and key material, validates the signature,
 /// then displays the decoded contents and validation result.
+/// When `--time-travel` is provided, also evaluates temporal claims
+/// against the simulated timestamp.
 /// Returns `true` if the signature is valid, `false` if invalid.
 /// The caller is responsible for mapping the boolean to an exit code.
 pub fn execute(args: &VerifyArgs) -> Result<bool> {
-    if args.time_travel.is_some() {
-        return Err(JwtTermError::NotImplemented {
-            command: "time-travel (--time-travel)".to_string(),
-        }
-        .into());
-    }
-
     if args.jwks_url.is_some() {
         check_jwks_conflicts(args)?;
     }
@@ -48,31 +44,56 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
     .context("failed to read token")?;
 
     let decoded = decoder::decode_token(&token).context("failed to decode token")?;
+    let (outcome, display_algorithm) = validate_token(&token, &decoded, args)?;
+    let tt_result = resolve_time_travel(args.time_travel.as_deref(), &decoded.payload)?;
 
+    if args.json {
+        display_json(&decoded, &outcome, &display_algorithm, tt_result.as_ref());
+    } else {
+        display_colored(&decoded, &outcome, &display_algorithm, tt_result.as_ref());
+    }
+
+    Ok(matches!(outcome, ValidationOutcome::Valid))
+}
+
+/// Validate the token's signature using JWKS or local key material.
+///
+/// Returns the validation outcome and the resolved algorithm name
+/// for display purposes.
+fn validate_token(
+    token: &str,
+    decoded: &decoder::DecodedToken,
+    args: &VerifyArgs,
+) -> Result<(ValidationOutcome, String)> {
     let algorithm = decoded
         .header
         .get("alg")
         .and_then(|v| v.as_str())
         .ok_or(JwtTermError::InvalidTokenFormat)?;
 
-    let (outcome, display_algorithm) = if let Some(ref url) = args.jwks_url {
+    if let Some(ref url) = args.jwks_url {
         let (outcome, resolved_alg) =
-            jwks::validate_with_jwks(&token, url).context("JWKS validation failed")?;
-        (outcome, resolved_alg)
+            jwks::validate_with_jwks(token, url).context("JWKS validation failed")?;
+        Ok((outcome, resolved_alg))
     } else {
         let key = resolve_key_material(args).context("failed to resolve key material")?;
-        let outcome = validator::validate_signature(&token, algorithm, &key)
+        let outcome = validator::validate_signature(token, algorithm, &key)
             .context("signature validation failed")?;
-        (outcome, algorithm.to_string())
-    };
-
-    if args.json {
-        display_json(&decoded, &outcome, &display_algorithm);
-    } else {
-        display_colored(&decoded, &outcome, &display_algorithm);
+        Ok((outcome, algorithm.to_string()))
     }
+}
 
-    Ok(matches!(outcome, ValidationOutcome::Valid))
+/// Parse time-travel expression and evaluate temporal claims if requested.
+fn resolve_time_travel(
+    expr: Option<&str>,
+    payload: &serde_json::Value,
+) -> Result<Option<TimeTravelResult>> {
+    expr.map(|e| -> Result<TimeTravelResult> {
+        let target = time_travel::parse_time_expression(e)
+            .context("failed to parse time-travel expression")?;
+        Ok(time_travel::evaluate_temporal_claims(payload, &target))
+    })
+    .transpose()
 }
 
 /// Resolve key material from CLI arguments.
@@ -195,7 +216,12 @@ fn read_bounded_file(file: std::fs::File, path: &Path) -> Result<Vec<u8>, JwtTer
 }
 
 /// Display results in colorized terminal format.
-fn display_colored(decoded: &decoder::DecodedToken, outcome: &ValidationOutcome, algorithm: &str) {
+fn display_colored(
+    decoded: &decoder::DecodedToken,
+    outcome: &ValidationOutcome,
+    algorithm: &str,
+    time_travel: Option<&TimeTravelResult>,
+) {
     println!("\n{}", "--- Header ---".bold());
     json_printer::print_json(&decoded.header, true);
 
@@ -205,13 +231,23 @@ fn display_colored(decoded: &decoder::DecodedToken, outcome: &ValidationOutcome,
     println!("\n{}", "--- Token Status ---".bold());
     token_status::display_token_status(&decoded.payload);
 
+    if let Some(tt_result) = time_travel {
+        println!("\n{}", "--- Time Travel ---".bold());
+        token_status::display_time_travel_status(tt_result);
+    }
+
     println!("\n{}", "--- Signature ---".bold());
     token_status::display_validation_result(outcome, algorithm);
     println!();
 }
 
 /// Display results in machine-readable JSON format.
-fn display_json(decoded: &decoder::DecodedToken, outcome: &ValidationOutcome, algorithm: &str) {
+fn display_json(
+    decoded: &decoder::DecodedToken,
+    outcome: &ValidationOutcome,
+    algorithm: &str,
+    time_travel: Option<&TimeTravelResult>,
+) {
     let signature_info = match outcome {
         ValidationOutcome::Valid => json!({
             "valid": true,
@@ -224,10 +260,52 @@ fn display_json(decoded: &decoder::DecodedToken, outcome: &ValidationOutcome, al
         }),
     };
 
-    let combined = json!({
+    let mut combined = json!({
         "header": decoded.header,
         "payload": decoded.payload,
         "signature": signature_info,
     });
+
+    if let Some(tt_result) = time_travel {
+        combined["time_travel"] = build_time_travel_json(tt_result);
+    }
+
     json_printer::print_json(&combined, false);
+}
+
+/// Build a JSON object with a status string and optional claim value.
+fn claim_status_to_json(status: &str, claim_value: Option<i64>) -> serde_json::Value {
+    let mut obj = json!({"status": status});
+    if let Some(v) = claim_value {
+        obj["claim_value"] = json!(v);
+    }
+    obj
+}
+
+/// Build the JSON representation of time-travel evaluation results.
+fn build_time_travel_json(result: &TimeTravelResult) -> serde_json::Value {
+    let exp_info = match &result.exp_status {
+        ClaimStatus::Expired { .. } => claim_status_to_json("expired", result.exp_value),
+        ClaimStatus::Valid => claim_status_to_json("valid", result.exp_value),
+        ClaimStatus::Absent => json!({"status": "absent"}),
+        ClaimStatus::NotYetValid { .. } => {
+            unreachable!("evaluate_temporal_claims never produces NotYetValid for exp")
+        }
+    };
+
+    let nbf_info = match &result.nbf_status {
+        ClaimStatus::NotYetValid { .. } => claim_status_to_json("not_yet_valid", result.nbf_value),
+        ClaimStatus::Valid => claim_status_to_json("valid", result.nbf_value),
+        ClaimStatus::Absent => json!({"status": "absent"}),
+        ClaimStatus::Expired { .. } => {
+            unreachable!("evaluate_temporal_claims never produces Expired for nbf")
+        }
+    };
+
+    json!({
+        "simulated_time": result.target.timestamp.to_rfc3339(),
+        "expression": result.target.expression,
+        "exp": exp_info,
+        "nbf": nbf_info,
+    })
 }

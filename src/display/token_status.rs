@@ -7,6 +7,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use colored::Colorize;
 use serde_json::Value;
 
+use crate::core::time_travel::{ClaimStatus, TimeTravelResult};
 use crate::core::validator::ValidationOutcome;
 
 /// Display the temporal status of a JWT's claims.
@@ -119,6 +120,86 @@ fn format_duration(duration: TimeDelta) -> String {
     } else {
         let days = secs / 86400;
         format!("{} day{}", days, pluralize(days))
+    }
+}
+
+/// Display time-travel evaluation results with color coding.
+///
+/// Shows the simulated timestamp, the original expression, and
+/// the status of `exp` and `nbf` claims at that simulated time.
+pub fn display_time_travel_status(result: &TimeTravelResult) {
+    println!(
+        "  {} {} ({})",
+        "Simulating:".bold(),
+        format_timestamp(result.target.timestamp),
+        result.target.expression
+    );
+
+    display_tt_exp(&result.exp_status);
+    display_tt_nbf(&result.nbf_status);
+}
+
+/// Display the `exp` claim status at a simulated time.
+fn display_tt_exp(status: &ClaimStatus) {
+    match status {
+        ClaimStatus::Expired { elapsed } => {
+            let ago = format_duration(*elapsed);
+            println!(
+                "  {} {} ({})",
+                "Expiry:    ".bold(),
+                "EXPIRED at simulated time".red().bold(),
+                format!("expired {} before", ago).red()
+            );
+        }
+        ClaimStatus::Valid => {
+            println!(
+                "  {} {}",
+                "Expiry:    ".bold(),
+                "VALID at simulated time".green().bold(),
+            );
+        }
+        ClaimStatus::Absent => {
+            println!(
+                "  {} {}",
+                "Expiry:    ".bold(),
+                "no exp claim present".dimmed()
+            );
+        }
+        ClaimStatus::NotYetValid { .. } => {
+            unreachable!("evaluate_temporal_claims never produces NotYetValid for exp")
+        }
+    }
+}
+
+/// Display the `nbf` claim status at a simulated time.
+fn display_tt_nbf(status: &ClaimStatus) {
+    match status {
+        ClaimStatus::NotYetValid { remaining } => {
+            let until = format_duration(*remaining);
+            println!(
+                "  {} {} ({})",
+                "Not before:".bold(),
+                "NOT YET VALID at simulated time".yellow().bold(),
+                format!("valid {} after", until).yellow()
+            );
+        }
+        ClaimStatus::Valid => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "VALID at simulated time".green().bold(),
+            );
+        }
+        ClaimStatus::Absent => {
+            println!(
+                "  {} {}",
+                "Not before:".bold(),
+                "no nbf claim present".dimmed()
+            );
+        }
+        ClaimStatus::Expired { .. } => {
+            unreachable!("evaluate_temporal_claims never produces Expired for nbf")
+        }
     }
 }
 

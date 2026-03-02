@@ -100,7 +100,10 @@ pub struct VerifyArgs {
     ///
     /// Accepts relative expressions like "+7d", "-1h", "+30m" or
     /// absolute timestamps in ISO 8601 or Unix epoch format.
-    #[arg(long, value_name = "EXPR")]
+    //
+    // allow_hyphen_values: negative relative expressions (e.g., "-1h")
+    // must not be interpreted as unknown CLI flags by clap.
+    #[arg(long, value_name = "EXPR", allow_hyphen_values = true)]
     pub time_travel: Option<String>,
 
     /// Output raw JSON without colors (machine-readable).

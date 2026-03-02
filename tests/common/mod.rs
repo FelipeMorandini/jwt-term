@@ -89,6 +89,37 @@ pub fn standard_claims() -> serde_json::Value {
     })
 }
 
+/// Claims with a far-future expiry (year ~2033) for time-travel testing.
+pub fn claims_with_future_exp() -> serde_json::Value {
+    serde_json::json!({
+        "sub": "1234567890",
+        "name": "Test User",
+        "iat": 1516239022,
+        "exp": 2000000000
+    })
+}
+
+/// Claims with a past expiry (year ~2020) for time-travel testing.
+pub fn claims_with_past_exp() -> serde_json::Value {
+    serde_json::json!({
+        "sub": "1234567890",
+        "name": "Test User",
+        "iat": 1516239022,
+        "exp": 1600000000
+    })
+}
+
+/// Claims with both `exp` and `nbf` for time-travel testing.
+pub fn claims_with_exp_and_nbf() -> serde_json::Value {
+    serde_json::json!({
+        "sub": "1234567890",
+        "name": "Test User",
+        "iat": 1516239022,
+        "exp": 2000000000,
+        "nbf": 1700000000
+    })
+}
+
 /// Create an HS256-signed token with a `kid` header claim.
 pub fn create_hs256_token_with_kid(secret: &str, kid: &str, claims: &serde_json::Value) -> String {
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
