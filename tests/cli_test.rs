@@ -645,6 +645,28 @@ fn test_verify_jwks_no_key_provided_includes_jwks_url_hint() {
         .stderr(predicate::str::contains("--jwks-url"));
 }
 
+// --- Verify: JWKS URL Credential Redaction ---
+
+#[test]
+fn test_verify_jwks_url_credentials_not_leaked() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    // URL with credentials — password must not appear in error output
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "https://admin:sup3r_s3cret_p4ss@localhost:1/.well-known/jwks.json",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("sup3r_s3cret_p4ss")
+                .not()
+                .and(predicate::str::contains("failed to fetch JWKS")),
+        );
+}
+
 // --- Verify: JWKS Conflicting Options ---
 
 #[test]

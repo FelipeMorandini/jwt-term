@@ -43,12 +43,12 @@ const JWKS_TIMEOUT_SECS: u64 = 10;
 /// Returns an error if the URL is not HTTPS, the request fails, no
 /// matching key is found, or signature validation fails.
 pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutcome, JwtTermError> {
-    validate_url_scheme(jwks_url)?;
-    let jwks = fetch_jwks(jwks_url)?;
+    let display_url = validate_url_scheme(jwks_url)?;
+    let jwks = fetch_jwks(jwks_url, &display_url)?;
 
     if jwks.keys.is_empty() {
         return Err(JwtTermError::JwksFetchError {
-            url: jwks_url.to_string(),
+            url: display_url,
             reason: "JWKS contains no keys".to_string(),
         });
     }
@@ -63,11 +63,11 @@ pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutco
 ///
 /// Parses the URL properly to handle case-insensitive schemes and
 /// catch malformed URLs, rather than relying on string prefix matching.
-fn validate_url_scheme(url: &str) -> Result<(), JwtTermError> {
+fn validate_url_scheme(url: &str) -> Result<String, JwtTermError> {
     match reqwest::Url::parse(url) {
-        Ok(parsed) if parsed.scheme() == "https" => Ok(()),
+        Ok(parsed) if parsed.scheme() == "https" => Ok(redact_url_credentials(&parsed)),
         Ok(parsed) => Err(JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: redact_url_credentials(&parsed),
             reason: format!(
                 "only HTTPS URLs are accepted for JWKS endpoints (got scheme '{}')",
                 parsed.scheme()
@@ -85,13 +85,13 @@ fn validate_url_scheme(url: &str) -> Result<(), JwtTermError> {
 /// Builds a `reqwest::blocking::Client` with an explicit timeout and
 /// disabled redirects (to prevent HTTPS → HTTP downgrade), reads the
 /// response body with a size limit, and parses it as a [`JwkSet`].
-fn fetch_jwks(url: &str) -> Result<JwkSet, JwtTermError> {
+fn fetch_jwks(url: &str, display_url: &str) -> Result<JwkSet, JwtTermError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(JWKS_TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: display_url.to_string(),
             reason: sanitize_reqwest_error(&e),
         })?;
 
@@ -99,21 +99,21 @@ fn fetch_jwks(url: &str) -> Result<JwkSet, JwtTermError> {
         .get(url)
         .send()
         .map_err(|e| JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: display_url.to_string(),
             reason: sanitize_reqwest_error(&e),
         })?;
 
     if !response.status().is_success() {
         return Err(JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: display_url.to_string(),
             reason: format!("server returned HTTP {}", response.status().as_u16()),
         });
     }
 
-    let body = read_bounded_response(response, url)?;
+    let body = read_bounded_response(response, display_url)?;
 
     serde_json::from_slice::<JwkSet>(&body).map_err(|_| JwtTermError::JwksFetchError {
-        url: url.to_string(),
+        url: display_url.to_string(),
         reason: "response is not a valid JWKS document".to_string(),
     })
 }
@@ -125,20 +125,20 @@ fn fetch_jwks(url: &str) -> Result<JwkSet, JwtTermError> {
 /// limit, returns a size error.
 fn read_bounded_response(
     response: reqwest::blocking::Response,
-    url: &str,
+    display_url: &str,
 ) -> Result<Vec<u8>, JwtTermError> {
     let mut bytes = Vec::new();
     response
         .take(JWKS_MAX_RESPONSE_SIZE + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: display_url.to_string(),
             reason: "failed to read response body".to_string(),
         })?;
 
     if bytes.len() as u64 > JWKS_MAX_RESPONSE_SIZE {
         return Err(JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: display_url.to_string(),
             reason: format!(
                 "response exceeds maximum size of {} bytes",
                 JWKS_MAX_RESPONSE_SIZE
@@ -165,24 +165,29 @@ fn extract_header(token: &str) -> Result<jsonwebtoken::Header, JwtTermError> {
 fn find_matching_key<'a>(jwks: &'a JwkSet, kid: Option<&str>) -> Result<&'a Jwk, JwtTermError> {
     match kid {
         Some(kid) => jwks.find(kid).ok_or_else(|| JwtTermError::JwksKeyNotFound {
-            kid: truncate_kid(kid),
+            kid: sanitize_kid(kid),
         }),
         None if jwks.keys.len() == 1 => Ok(&jwks.keys[0]),
         None => Err(JwtTermError::JwksMissingKid),
     }
 }
 
-/// Truncate a `kid` value for safe inclusion in error messages.
+/// Sanitize a `kid` value for safe inclusion in error messages.
 ///
-/// Caps at 128 bytes to prevent excessively long error output from
-/// crafted tokens and mitigate terminal escape sequence injection.
+/// Replaces control characters (including ANSI escape sequences) with
+/// the Unicode replacement character to prevent terminal injection,
+/// then truncates to 128 bytes to limit error message length.
 /// Uses `floor_char_boundary` to avoid panicking on multi-byte UTF-8.
-fn truncate_kid(kid: &str) -> String {
-    if kid.len() > 128 {
-        let end = kid.floor_char_boundary(128);
-        format!("{}...(truncated)", &kid[..end])
+fn sanitize_kid(kid: &str) -> String {
+    let clean: String = kid
+        .chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect();
+    if clean.len() > 128 {
+        let end = clean.floor_char_boundary(128);
+        format!("{}...(truncated)", &clean[..end])
     } else {
-        kid.to_string()
+        clean
     }
 }
 
@@ -283,6 +288,21 @@ fn sanitize_reqwest_error(err: &reqwest::Error) -> String {
     }
 }
 
+/// Strip credentials (userinfo) from a URL for safe display in errors.
+///
+/// Parses the URL and removes any username/password components to
+/// prevent accidental credential leakage in error messages. Returns
+/// the URL unchanged if it contains no credentials.
+fn redact_url_credentials(url: &reqwest::Url) -> String {
+    if url.username().is_empty() && url.password().is_none() {
+        return url.to_string();
+    }
+    let mut sanitized = url.clone();
+    let _ = sanitized.set_username("");
+    let _ = sanitized.set_password(None);
+    sanitized.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,6 +381,52 @@ mod tests {
         assert!(validate_url_scheme("HTTPS://example.com/.well-known/jwks.json").is_ok());
     }
 
+    // --- URL credential redaction ---
+
+    #[test]
+    fn test_redact_url_credentials_no_creds() {
+        let url = reqwest::Url::parse("https://example.com/jwks").unwrap();
+        assert_eq!(redact_url_credentials(&url), "https://example.com/jwks");
+    }
+
+    #[test]
+    fn test_redact_url_credentials_strips_password() {
+        let url = reqwest::Url::parse("https://user:s3cret@example.com/jwks").unwrap();
+        let result = redact_url_credentials(&url);
+        assert!(!result.contains("s3cret"));
+        assert!(!result.contains("user"));
+        assert!(result.contains("example.com/jwks"));
+    }
+
+    #[test]
+    fn test_redact_url_credentials_strips_username_only() {
+        let url = reqwest::Url::parse("https://admin@example.com/jwks").unwrap();
+        let result = redact_url_credentials(&url);
+        assert!(!result.contains("admin"));
+        assert!(result.contains("example.com/jwks"));
+    }
+
+    #[test]
+    fn test_validate_url_scheme_redacts_credentials_on_success() {
+        let result = validate_url_scheme("https://user:pass@example.com/jwks").unwrap();
+        assert!(!result.contains("user"));
+        assert!(!result.contains("pass"));
+        assert!(result.contains("example.com/jwks"));
+    }
+
+    #[test]
+    fn test_validate_url_scheme_redacts_credentials_on_http_error() {
+        let err = validate_url_scheme("http://user:pass@example.com/jwks").unwrap_err();
+        match err {
+            JwtTermError::JwksFetchError { url, .. } => {
+                assert!(!url.contains("user"));
+                assert!(!url.contains("pass"));
+                assert!(url.contains("example.com/jwks"));
+            }
+            _ => panic!("expected JwksFetchError"),
+        }
+    }
+
     // --- Header extraction ---
 
     #[test]
@@ -424,31 +490,49 @@ mod tests {
         assert!(matches!(err, JwtTermError::JwksMissingKid));
     }
 
-    // --- kid truncation ---
+    // --- kid sanitization ---
 
     #[test]
-    fn test_truncate_kid_short() {
-        assert_eq!(truncate_kid("my-key-id"), "my-key-id");
+    fn test_sanitize_kid_short() {
+        assert_eq!(sanitize_kid("my-key-id"), "my-key-id");
     }
 
     #[test]
-    fn test_truncate_kid_long() {
+    fn test_sanitize_kid_long() {
         let long_kid = "a".repeat(200);
-        let result = truncate_kid(&long_kid);
+        let result = sanitize_kid(&long_kid);
         assert!(result.len() < 200);
         assert!(result.ends_with("...(truncated)"));
     }
 
     #[test]
-    fn test_truncate_kid_multibyte_utf8() {
+    fn test_sanitize_kid_multibyte_utf8() {
         // Each emoji is 4 bytes; 33 emojis = 132 bytes, exceeds 128
         let emoji_kid = "\u{1F600}".repeat(33);
         assert_eq!(emoji_kid.len(), 132);
-        let result = truncate_kid(&emoji_kid);
+        let result = sanitize_kid(&emoji_kid);
         // Must not panic and must end with truncation marker
         assert!(result.ends_with("...(truncated)"));
         // The truncated portion must be valid UTF-8 (this assertion is
         // implicit — if it weren't, the String would not have been created)
+    }
+
+    #[test]
+    fn test_sanitize_kid_replaces_ansi_escapes() {
+        let kid_with_escapes = "key\x1b[31mRED\x1b[0m-id";
+        let result = sanitize_kid(kid_with_escapes);
+        assert!(!result.contains('\x1b'));
+        assert!(result.contains('\u{FFFD}'));
+        assert!(result.contains("RED"));
+        assert!(result.contains("-id"));
+    }
+
+    #[test]
+    fn test_sanitize_kid_replaces_null_bytes() {
+        let kid_with_null = "key\0id";
+        let result = sanitize_kid(kid_with_null);
+        assert!(!result.contains('\0'));
+        assert!(result.contains('\u{FFFD}'));
     }
 
     // --- Algorithm resolution ---
