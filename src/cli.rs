@@ -125,10 +125,9 @@ fn parse_zeroizing_string(s: &str) -> Result<Zeroizing<String>, std::convert::In
 /// start with `--` so the user gets a clear error instead.
 fn validate_time_travel_value(s: &str) -> Result<String, String> {
     if s.starts_with("--") {
-        return Err(format!(
-            "'{s}' looks like a flag, not a time expression; \
+        return Err("value looks like a flag, not a time expression; \
              use a relative (+7d, -1h), ISO 8601, or Unix epoch value"
-        ));
+            .to_string());
     }
     Ok(s.to_string())
 }
