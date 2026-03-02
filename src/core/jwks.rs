@@ -65,9 +65,9 @@ pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutco
 /// catch malformed URLs, rather than relying on string prefix matching.
 fn validate_url_scheme(url: &str) -> Result<String, JwtTermError> {
     match reqwest::Url::parse(url) {
-        Ok(parsed) if parsed.scheme() == "https" => Ok(redact_url_credentials(&parsed)),
+        Ok(parsed) if parsed.scheme() == "https" => Ok(sanitize_url_for_display(&parsed)),
         Ok(parsed) => Err(JwtTermError::JwksFetchError {
-            url: redact_url_credentials(&parsed),
+            url: sanitize_url_for_display(&parsed),
             reason: format!(
                 "only HTTPS URLs are accepted for JWKS endpoints (got scheme '{}')",
                 parsed.scheme()
@@ -288,18 +288,18 @@ fn sanitize_reqwest_error(err: &reqwest::Error) -> String {
     }
 }
 
-/// Strip credentials (userinfo) from a URL for safe display in errors.
+/// Sanitize a URL for safe display in error messages.
 ///
-/// Parses the URL and removes any username/password components to
-/// prevent accidental credential leakage in error messages. Returns
-/// the URL unchanged if it contains no credentials.
-fn redact_url_credentials(url: &reqwest::Url) -> String {
-    if url.username().is_empty() && url.password().is_none() {
-        return url.to_string();
-    }
+/// Strips credentials (userinfo), query parameters, and fragment
+/// components to prevent accidental leakage of secrets, API keys,
+/// or tokens that may be embedded in the URL. Only scheme, host,
+/// port, and path are preserved.
+fn sanitize_url_for_display(url: &reqwest::Url) -> String {
     let mut sanitized = url.clone();
     let _ = sanitized.set_username("");
     let _ = sanitized.set_password(None);
+    sanitized.set_query(None);
+    sanitized.set_fragment(None);
     sanitized.to_string()
 }
 
@@ -381,46 +381,80 @@ mod tests {
         assert!(validate_url_scheme("HTTPS://example.com/.well-known/jwks.json").is_ok());
     }
 
-    // --- URL credential redaction ---
+    // --- URL sanitization for display ---
 
     #[test]
-    fn test_redact_url_credentials_no_creds() {
+    fn test_sanitize_url_for_display_no_sensitive_parts() {
         let url = reqwest::Url::parse("https://example.com/jwks").unwrap();
-        assert_eq!(redact_url_credentials(&url), "https://example.com/jwks");
+        assert_eq!(sanitize_url_for_display(&url), "https://example.com/jwks");
     }
 
     #[test]
-    fn test_redact_url_credentials_strips_password() {
+    fn test_sanitize_url_for_display_strips_password() {
         let url = reqwest::Url::parse("https://user:s3cret@example.com/jwks").unwrap();
-        let result = redact_url_credentials(&url);
+        let result = sanitize_url_for_display(&url);
         assert!(!result.contains("s3cret"));
         assert!(!result.contains("user"));
         assert!(result.contains("example.com/jwks"));
     }
 
     #[test]
-    fn test_redact_url_credentials_strips_username_only() {
+    fn test_sanitize_url_for_display_strips_username_only() {
         let url = reqwest::Url::parse("https://admin@example.com/jwks").unwrap();
-        let result = redact_url_credentials(&url);
+        let result = sanitize_url_for_display(&url);
         assert!(!result.contains("admin"));
         assert!(result.contains("example.com/jwks"));
     }
 
     #[test]
-    fn test_validate_url_scheme_redacts_credentials_on_success() {
-        let result = validate_url_scheme("https://user:pass@example.com/jwks").unwrap();
+    fn test_sanitize_url_for_display_strips_query_params() {
+        let url = reqwest::Url::parse("https://example.com/jwks?api_key=secret123&v=2").unwrap();
+        let result = sanitize_url_for_display(&url);
+        assert!(!result.contains("api_key"));
+        assert!(!result.contains("secret123"));
+        assert!(!result.contains('?'));
+        assert_eq!(result, "https://example.com/jwks");
+    }
+
+    #[test]
+    fn test_sanitize_url_for_display_strips_fragment() {
+        let url = reqwest::Url::parse("https://example.com/jwks#section").unwrap();
+        let result = sanitize_url_for_display(&url);
+        assert!(!result.contains("section"));
+        assert!(!result.contains('#'));
+        assert_eq!(result, "https://example.com/jwks");
+    }
+
+    #[test]
+    fn test_sanitize_url_for_display_strips_all_sensitive_parts() {
+        let url =
+            reqwest::Url::parse("https://user:pass@example.com/jwks?token=abc123#frag").unwrap();
+        let result = sanitize_url_for_display(&url);
         assert!(!result.contains("user"));
         assert!(!result.contains("pass"));
+        assert!(!result.contains("token"));
+        assert!(!result.contains("abc123"));
+        assert!(!result.contains("frag"));
+        assert_eq!(result, "https://example.com/jwks");
+    }
+
+    #[test]
+    fn test_validate_url_scheme_sanitizes_on_success() {
+        let result = validate_url_scheme("https://user:pass@example.com/jwks?key=val").unwrap();
+        assert!(!result.contains("user"));
+        assert!(!result.contains("pass"));
+        assert!(!result.contains("key=val"));
         assert!(result.contains("example.com/jwks"));
     }
 
     #[test]
-    fn test_validate_url_scheme_redacts_credentials_on_http_error() {
-        let err = validate_url_scheme("http://user:pass@example.com/jwks").unwrap_err();
+    fn test_validate_url_scheme_sanitizes_on_http_error() {
+        let err = validate_url_scheme("http://user:pass@example.com/jwks?key=val").unwrap_err();
         match err {
             JwtTermError::JwksFetchError { url, .. } => {
                 assert!(!url.contains("user"));
                 assert!(!url.contains("pass"));
+                assert!(!url.contains("key=val"));
                 assert!(url.contains("example.com/jwks"));
             }
             _ => panic!("expected JwksFetchError"),
@@ -674,5 +708,158 @@ mod tests {
     fn test_sanitize_jwt_error_unknown() {
         let msg = sanitize_jwt_error(&jsonwebtoken::errors::ErrorKind::InvalidIssuer);
         assert_eq!(msg, "unexpected validation error");
+    }
+
+    // --- Network behavior (wiremock) ---
+    //
+    // These tests use wiremock to verify security-relevant HTTP handling:
+    // response size limits, redirect rejection, and error status codes.
+    // They call `fetch_jwks` directly (bypassing the HTTPS scheme check)
+    // since wiremock only serves HTTP. The scheme check is tested
+    // separately above.
+    //
+    // `std::thread::spawn` is used instead of `tokio::task::spawn_blocking`
+    // because `reqwest::blocking` panics inside a tokio async context.
+
+    #[tokio::test]
+    async fn test_fetch_jwks_rejects_oversized_response() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        // Respond with a body just over the 1 MB limit
+        Mock::given(method("GET"))
+            .and(path("/jwks"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![b'x'; 1_048_577]))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/jwks", mock_server.uri());
+        let display_url = url.clone();
+
+        let result = std::thread::spawn(move || fetch_jwks(&url, &display_url))
+            .join()
+            .unwrap();
+
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. }
+                if reason.contains("maximum size")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_rejects_redirect() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        // Return a 301 redirect — our client uses Policy::none()
+        Mock::given(method("GET"))
+            .and(path("/jwks"))
+            .respond_with(
+                ResponseTemplate::new(301).insert_header("Location", "http://evil.com/jwks"),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/jwks", mock_server.uri());
+        let display_url = url.clone();
+
+        let result = std::thread::spawn(move || fetch_jwks(&url, &display_url))
+            .join()
+            .unwrap();
+
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. }
+                if reason.contains("HTTP 301")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_rejects_server_error() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/jwks"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/jwks", mock_server.uri());
+        let display_url = url.clone();
+
+        let result = std::thread::spawn(move || fetch_jwks(&url, &display_url))
+            .join()
+            .unwrap();
+
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. }
+                if reason.contains("HTTP 500")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_rejects_invalid_json() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/jwks"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/jwks", mock_server.uri());
+        let display_url = url.clone();
+
+        let result = std::thread::spawn(move || fetch_jwks(&url, &display_url))
+            .join()
+            .unwrap();
+
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::JwksFetchError { reason, .. }
+                if reason.contains("not a valid JWKS")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_parses_valid_jwks() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+        let body = hmac_jwks_json("k1", b"test-secret", "HS256");
+
+        Mock::given(method("GET"))
+            .and(path("/jwks"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/jwks", mock_server.uri());
+        let display_url = url.clone();
+
+        let result = std::thread::spawn(move || fetch_jwks(&url, &display_url))
+            .join()
+            .unwrap();
+
+        let jwks = result.unwrap();
+        assert_eq!(jwks.keys.len(), 1);
+        assert_eq!(jwks.keys[0].common.key_id.as_deref(), Some("k1"));
     }
 }

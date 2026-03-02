@@ -650,19 +650,21 @@ fn test_verify_jwks_no_key_provided_includes_jwks_url_hint() {
 #[test]
 fn test_verify_jwks_url_credentials_not_leaked() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
-    // URL with credentials — password must not appear in error output
+    // URL with credentials and query params — neither must appear in error output
     cmd()
         .args([
             "verify",
             &token,
             "--jwks-url",
-            "https://admin:sup3r_s3cret_p4ss@localhost:1/.well-known/jwks.json",
+            "https://admin:sup3r_s3cret_p4ss@localhost:1/.well-known/jwks.json?api_key=tok3n",
         ])
         .assert()
         .failure()
         .stderr(
             predicate::str::contains("sup3r_s3cret_p4ss")
                 .not()
+                .and(predicate::str::contains("tok3n").not())
+                .and(predicate::str::contains("api_key").not())
                 .and(predicate::str::contains("failed to fetch JWKS")),
         );
 }
