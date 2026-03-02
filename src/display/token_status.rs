@@ -157,7 +157,7 @@ fn display_tt_exp(status: &ClaimStatus) {
             let ago = format_duration(*elapsed);
             println!(
                 "  {} {} ({})",
-                "Expiry:    ".bold(),
+                "Expires:  ".bold(),
                 "EXPIRED at simulated time".red().bold(),
                 format!("expired {} before simulated time", ago).red()
             );
@@ -165,21 +165,21 @@ fn display_tt_exp(status: &ClaimStatus) {
         ClaimStatus::Valid => {
             println!(
                 "  {} {}",
-                "Expiry:    ".bold(),
+                "Expires:  ".bold(),
                 "VALID at simulated time".green().bold(),
             );
         }
         ClaimStatus::Absent => {
             println!(
                 "  {} {}",
-                "Expiry:    ".bold(),
+                "Expires:  ".bold(),
                 "no exp claim present".dimmed()
             );
         }
         ClaimStatus::Invalid => {
             println!(
                 "  {} {}",
-                "Expiry:    ".bold(),
+                "Expires:  ".bold(),
                 "INVALID exp value".red().bold()
             );
         }
@@ -187,9 +187,9 @@ fn display_tt_exp(status: &ClaimStatus) {
             let until = format_duration(*remaining);
             println!(
                 "  {} {} ({})",
-                "Expiry:    ".bold(),
+                "Expires:  ".bold(),
                 "NOT YET VALID at simulated time".yellow().bold(),
-                format!("becomes valid in {}", until).yellow()
+                format!("expires in {}", until).yellow()
             );
         }
     }
