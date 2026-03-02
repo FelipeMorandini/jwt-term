@@ -1,11 +1,11 @@
 //! Handler for the `verify` subcommand.
 //!
-//! Verifies a JWT's signature using a shared secret or PEM-encoded
-//! public key. Remote JWKS endpoint validation is planned but not
-//! yet implemented. Displays the decoded token contents alongside
-//! the validation result.
+//! Verifies a JWT's signature using a shared secret, PEM-encoded
+//! public key, or remote JWKS endpoint. Displays the decoded token
+//! contents alongside the validation result.
 
 use std::io::Read;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 
 use crate::cli::VerifyArgs;
 use crate::core::validator::{KeyMaterial, ValidationOutcome};
-use crate::core::{decoder, validator};
+use crate::core::{decoder, jwks, validator};
 use crate::display::{json_printer, token_status};
 use crate::error::JwtTermError;
 
@@ -30,18 +30,15 @@ const MAX_KEY_FILE_SIZE: u64 = 1_048_576;
 /// Returns `true` if the signature is valid, `false` if invalid.
 /// The caller is responsible for mapping the boolean to an exit code.
 pub fn execute(args: &VerifyArgs) -> Result<bool> {
-    // Guard: features not yet implemented
-    if args.jwks_url.is_some() {
-        return Err(JwtTermError::NotImplemented {
-            command: "JWKS validation (--jwks-url)".to_string(),
-        }
-        .into());
-    }
     if args.time_travel.is_some() {
         return Err(JwtTermError::NotImplemented {
             command: "time-travel (--time-travel)".to_string(),
         }
         .into());
+    }
+
+    if args.jwks_url.is_some() {
+        check_jwks_conflicts(args)?;
     }
 
     let token = resolve_token(
@@ -58,10 +55,13 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
         .and_then(|v| v.as_str())
         .ok_or(JwtTermError::InvalidTokenFormat)?;
 
-    let key = resolve_key_material(args).context("failed to resolve key material")?;
-
-    let outcome = validator::validate_signature(&token, algorithm, &key)
-        .context("signature validation failed")?;
+    let outcome = if let Some(ref url) = args.jwks_url {
+        jwks::validate_with_jwks(&token, url).context("JWKS validation failed")?
+    } else {
+        let key = resolve_key_material(args).context("failed to resolve key material")?;
+        validator::validate_signature(&token, algorithm, &key)
+            .context("signature validation failed")?
+    };
 
     if args.json {
         display_json(&decoded, &outcome, algorithm);
@@ -80,52 +80,91 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
 /// 3. `--key-file` (PEM-encoded public key from file)
 fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> {
     if let Some(ref secret) = args.secret {
-        return Ok(KeyMaterial::Secret(Zeroizing::new(
-            secret.as_bytes().to_vec(),
-        )));
+        return Ok(resolve_secret_from_arg(secret));
     }
 
     if let Some(ref env_name) = args.secret_env {
-        super::validate_env_var_name(env_name)?;
-        let secret = Zeroizing::new(std::env::var(env_name).map_err(|e| match e {
-            std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
-                name: env_name.clone(),
-            },
-            std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
-                name: env_name.clone(),
-            },
-        })?);
-        let bytes = Zeroizing::new(secret.as_bytes().to_vec());
-        drop(secret);
-        return Ok(KeyMaterial::Secret(bytes));
+        return resolve_secret_from_env(env_name);
     }
 
     if let Some(ref path) = args.key_file {
-        let file = std::fs::File::open(path).map_err(|e| JwtTermError::KeyFileError {
-            path: path.display().to_string(),
-            reason: super::sanitize_io_error(&e),
-        })?;
-        let metadata = file.metadata().map_err(|e| JwtTermError::KeyFileError {
-            path: path.display().to_string(),
-            reason: super::sanitize_io_error(&e),
-        })?;
-        if !metadata.file_type().is_file() {
-            return Err(JwtTermError::KeyFileError {
-                path: path.display().to_string(),
-                reason: "not a regular file".to_string(),
-            });
-        }
-        if metadata.len() > MAX_KEY_FILE_SIZE {
-            return Err(JwtTermError::KeyFileTooLarge {
-                size: metadata.len(),
-                max_size: MAX_KEY_FILE_SIZE,
-            });
-        }
-        let bytes = read_bounded_file(file, path)?;
-        return Ok(KeyMaterial::PemKey(bytes));
+        return resolve_key_from_file(path);
     }
 
     Err(JwtTermError::NoKeyProvided)
+}
+
+/// Build HMAC key material from a CLI argument value.
+fn resolve_secret_from_arg(secret: &Zeroizing<String>) -> KeyMaterial {
+    KeyMaterial::Secret(Zeroizing::new(secret.as_bytes().to_vec()))
+}
+
+/// Read an HMAC secret from the named environment variable.
+fn resolve_secret_from_env(env_name: &str) -> Result<KeyMaterial, JwtTermError> {
+    super::validate_env_var_name(env_name)?;
+    let secret = Zeroizing::new(std::env::var(env_name).map_err(|e| match e {
+        std::env::VarError::NotPresent => JwtTermError::EnvVarNotFound {
+            name: env_name.to_string(),
+        },
+        std::env::VarError::NotUnicode(_) => JwtTermError::EnvVarNotUnicode {
+            name: env_name.to_string(),
+        },
+    })?);
+    let bytes = Zeroizing::new(secret.as_bytes().to_vec());
+    drop(secret);
+    Ok(KeyMaterial::Secret(bytes))
+}
+
+/// Read a PEM-encoded public key from a file path.
+///
+/// Opens the file, checks metadata on the same fd (TOCTOU-safe),
+/// validates that it is a regular file within the size limit, and
+/// reads the contents with a bounded read.
+fn resolve_key_from_file(path: &Path) -> Result<KeyMaterial, JwtTermError> {
+    let file = std::fs::File::open(path).map_err(|e| JwtTermError::KeyFileError {
+        path: path.display().to_string(),
+        reason: super::sanitize_io_error(&e),
+    })?;
+    let metadata = file.metadata().map_err(|e| JwtTermError::KeyFileError {
+        path: path.display().to_string(),
+        reason: super::sanitize_io_error(&e),
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(JwtTermError::KeyFileError {
+            path: path.display().to_string(),
+            reason: "not a regular file".to_string(),
+        });
+    }
+    if metadata.len() > MAX_KEY_FILE_SIZE {
+        return Err(JwtTermError::KeyFileTooLarge {
+            size: metadata.len(),
+            max_size: MAX_KEY_FILE_SIZE,
+        });
+    }
+    let bytes = read_bounded_file(file, path)?;
+    Ok(KeyMaterial::PemKey(bytes))
+}
+
+/// Reject conflicting key options when `--jwks-url` is present.
+///
+/// Returns an error naming the first conflicting flag found.
+fn check_jwks_conflicts(args: &VerifyArgs) -> Result<(), JwtTermError> {
+    if args.secret.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--secret".to_string(),
+        });
+    }
+    if args.secret_env.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--secret-env".to_string(),
+        });
+    }
+    if args.key_file.is_some() {
+        return Err(JwtTermError::ConflictingKeyOptions {
+            conflicting_flag: "--key-file".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Read a key file with a bounded size limit.
@@ -135,7 +174,7 @@ fn resolve_key_material(args: &VerifyArgs) -> Result<KeyMaterial, JwtTermError> 
 /// same fd before passing it here. Reads up to `MAX_KEY_FILE_SIZE + 1`
 /// bytes; if the read exceeds the limit, returns a `KeyFileTooLarge`
 /// error.
-fn read_bounded_file(file: std::fs::File, path: &std::path::Path) -> Result<Vec<u8>, JwtTermError> {
+fn read_bounded_file(file: std::fs::File, path: &Path) -> Result<Vec<u8>, JwtTermError> {
     let mut bytes = Vec::new();
     file.take(MAX_KEY_FILE_SIZE + 1)
         .read_to_end(&mut bytes)

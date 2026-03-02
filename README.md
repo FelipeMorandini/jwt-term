@@ -9,7 +9,7 @@ Stop pasting sensitive tokens into web portals. Debug them in your terminal.
 - **Instant Decoding** -- Decode base64url-encoded headers and payloads without signature verification
 - **Pretty-Print Output** -- Colorized, formatted JSON for quick visual inspection
 - **Offline Signature Validation** -- Validate HMAC (HS256/384/512), RSA (RS256/384/512, PS256/384/512), ECDSA (ES256/384), and EdDSA signatures with local secrets and PEM keys
-- **Remote JWKS Validation** *(planned)* -- Fetch and validate against OIDC provider JWKS endpoints
+- **Remote JWKS Validation** -- Fetch and validate against OIDC provider JWKS endpoints over HTTPS
 - **Time-Travel Debugging** *(planned)* -- Simulate token expiry by evaluating `exp`/`nbf` against custom timestamps
 - **Security First** -- No telemetry, no logging, memory-zeroed secrets via `zeroize`, stdin/env-var support to avoid shell history exposure
 
@@ -51,6 +51,9 @@ jwt-term verify <token> --secret-env HMAC_SECRET
 
 # Verify an RSA/ECDSA signature with a PEM public key
 jwt-term verify <token> --key-file public.pem
+
+# Verify using a remote JWKS endpoint (HTTPS only)
+jwt-term verify <token> --jwks-url "https://login.example.com/.well-known/jwks.json"
 ```
 
 ## Usage
@@ -70,7 +73,7 @@ jwt-term decode [OPTIONS] [TOKEN]
 
 ### verify
 
-Verify a JWT's signature using a local secret or key file. Displays the decoded token alongside the validation result. Exits with code 1 if the signature is invalid.
+Verify a JWT's signature using a local secret, key file, or remote JWKS endpoint. Displays the decoded token alongside the validation result. Exits with code 1 if the signature is invalid.
 
 ```bash
 jwt-term verify [OPTIONS] [TOKEN]
@@ -81,7 +84,7 @@ jwt-term verify [OPTIONS] [TOKEN]
 | `--secret <SECRET>` | HMAC shared secret (see security note below) |
 | `--secret-env <VAR>` | Read HMAC secret from environment variable (recommended) |
 | `--key-file <FILE>` | PEM-encoded public key file (RSA/ECDSA/EdDSA) |
-| `--jwks-url <URL>` | JWKS endpoint URL *(planned)* |
+| `--jwks-url <URL>` | JWKS endpoint URL (HTTPS only) |
 | `--time-travel <EXPR>` | Evaluate expiry at a simulated time *(planned)* |
 | `--token-env <VAR>` | Read token from environment variable |
 | `--json` | Output raw JSON without colors |
@@ -92,7 +95,7 @@ Supported algorithms: HS256, HS384, HS512, RS256, RS384, RS512, PS256, PS384, PS
 
 jwt-term is designed with security as a first-class concern:
 
-- **No telemetry or analytics** -- The tool never phones home. Network calls only happen when you explicitly request JWKS validation.
+- **No telemetry or analytics** -- The tool never phones home. Network calls only happen when you explicitly pass `--jwks-url`.
 - **No logging** -- Token payloads and secrets are never written to disk.
 - **Memory-zeroed secrets** -- HMAC keys and sensitive data are zeroed from memory after use via the `zeroize` crate.
 - **Shell history safety** -- Use `--token-env` or pipe via stdin to keep tokens out of `~/.bash_history`:
