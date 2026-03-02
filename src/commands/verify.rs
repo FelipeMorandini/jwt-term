@@ -55,18 +55,21 @@ pub fn execute(args: &VerifyArgs) -> Result<bool> {
         .and_then(|v| v.as_str())
         .ok_or(JwtTermError::InvalidTokenFormat)?;
 
-    let outcome = if let Some(ref url) = args.jwks_url {
-        jwks::validate_with_jwks(&token, url).context("JWKS validation failed")?
+    let (outcome, display_algorithm) = if let Some(ref url) = args.jwks_url {
+        let (outcome, resolved_alg) =
+            jwks::validate_with_jwks(&token, url).context("JWKS validation failed")?;
+        (outcome, resolved_alg)
     } else {
         let key = resolve_key_material(args).context("failed to resolve key material")?;
-        validator::validate_signature(&token, algorithm, &key)
-            .context("signature validation failed")?
+        let outcome = validator::validate_signature(&token, algorithm, &key)
+            .context("signature validation failed")?;
+        (outcome, algorithm.to_string())
     };
 
     if args.json {
-        display_json(&decoded, &outcome, algorithm);
+        display_json(&decoded, &outcome, &display_algorithm);
     } else {
-        display_colored(&decoded, &outcome, algorithm);
+        display_colored(&decoded, &outcome, &display_algorithm);
     }
 
     Ok(matches!(outcome, ValidationOutcome::Valid))

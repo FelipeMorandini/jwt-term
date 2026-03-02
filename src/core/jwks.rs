@@ -28,7 +28,9 @@ const JWKS_TIMEOUT_SECS: u64 = 10;
 ///
 /// Performs an HTTPS GET request to the JWKS endpoint, finds the key
 /// matching the token's `kid` header claim, and validates the signature.
-/// Returns a [`ValidationOutcome`] consistent with local validation.
+/// Returns a [`ValidationOutcome`] and the algorithm name that was
+/// actually used for verification (which may differ from the JWT
+/// header's `alg` when the JWK declares its own `alg` field).
 ///
 /// # Security
 ///
@@ -42,7 +44,10 @@ const JWKS_TIMEOUT_SECS: u64 = 10;
 ///
 /// Returns an error if the URL is not HTTPS, the request fails, no
 /// matching key is found, or signature validation fails.
-pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutcome, JwtTermError> {
+pub fn validate_with_jwks(
+    token: &str,
+    jwks_url: &str,
+) -> Result<(ValidationOutcome, String), JwtTermError> {
     let display_url = validate_url_scheme(jwks_url)?;
     let jwks = fetch_jwks(jwks_url, &display_url)?;
 
@@ -56,7 +61,9 @@ pub fn validate_with_jwks(token: &str, jwks_url: &str) -> Result<ValidationOutco
     let header = extract_header(token)?;
     let jwk = find_matching_key(&jwks, header.kid.as_deref())?;
     let algorithm = resolve_algorithm(jwk, &header)?;
-    validate_token_with_jwk(token, jwk, algorithm)
+    let algorithm_name = format!("{algorithm:?}");
+    let outcome = validate_token_with_jwk(token, jwk, algorithm)?;
+    Ok((outcome, algorithm_name))
 }
 
 /// Reject non-HTTPS URLs before any network call.
@@ -74,7 +81,7 @@ fn validate_url_scheme(url: &str) -> Result<String, JwtTermError> {
             ),
         }),
         Err(_) => Err(JwtTermError::JwksFetchError {
-            url: url.to_string(),
+            url: "<invalid URL>".to_string(),
             reason: "invalid URL for JWKS endpoint".to_string(),
         }),
     }
@@ -381,6 +388,19 @@ mod tests {
         assert!(validate_url_scheme("HTTPS://example.com/.well-known/jwks.json").is_ok());
     }
 
+    #[test]
+    fn test_validate_url_scheme_redacts_raw_url_on_parse_failure() {
+        // Malformed input that cannot be parsed should NOT appear in the error
+        let err = validate_url_scheme("not-a-url-but-has-s3cret").unwrap_err();
+        match err {
+            JwtTermError::JwksFetchError { url, .. } => {
+                assert_eq!(url, "<invalid URL>");
+                assert!(!url.contains("s3cret"));
+            }
+            _ => panic!("expected JwksFetchError"),
+        }
+    }
+
     // --- URL sanitization for display ---
 
     #[test]
@@ -595,6 +615,22 @@ mod tests {
         let header = Header::new(Algorithm::HS384);
         let alg = resolve_algorithm(jwk, &header).unwrap();
         assert_eq!(alg, Algorithm::HS384);
+    }
+
+    #[test]
+    fn test_resolve_algorithm_returns_jwk_alg_name() {
+        // When JWK declares alg HS256 but header says HS384,
+        // the algorithm name should reflect the JWK's choice.
+        let jwks_json = hmac_jwks_json("k1", b"secret", "HS256");
+        let jwks = parse_jwks(&jwks_json);
+        let jwk = &jwks.keys[0];
+
+        let mut header = Header::new(Algorithm::HS384);
+        header.kid = Some("k1".to_string());
+
+        let alg = resolve_algorithm(jwk, &header).unwrap();
+        let alg_name = format!("{alg:?}");
+        assert_eq!(alg_name, "HS256"); // JWK wins, not header
     }
 
     // --- KeyAlgorithm conversion ---

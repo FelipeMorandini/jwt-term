@@ -614,6 +614,25 @@ fn test_verify_jwks_rejects_non_url() {
 }
 
 #[test]
+fn test_verify_jwks_invalid_url_redacts_raw_input() {
+    let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
+    // Non-URL input containing sensitive text — raw value must not appear in error
+    cmd()
+        .args([
+            "verify",
+            &token,
+            "--jwks-url",
+            "my-s3cret-token-value",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("invalid URL")
+                .and(predicate::str::contains("my-s3cret-token-value").not()),
+        );
+}
+
+#[test]
 fn test_verify_jwks_unreachable_host() {
     let token = common::create_hs256_token(common::HMAC_TEST_SECRET, &common::standard_claims());
     // Use localhost on a privileged port (1) for immediate connection-refused
