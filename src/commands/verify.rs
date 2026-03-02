@@ -289,9 +289,7 @@ fn build_time_travel_json(result: &TimeTravelResult) -> serde_json::Value {
         ClaimStatus::Valid => claim_status_to_json("valid", result.exp_value),
         ClaimStatus::Absent => json!({"status": "absent"}),
         ClaimStatus::Invalid => claim_status_to_json("invalid", result.exp_value),
-        ClaimStatus::NotYetValid { .. } => {
-            unreachable!("evaluate_temporal_claims never produces NotYetValid for exp")
-        }
+        ClaimStatus::NotYetValid { .. } => claim_status_to_json("not_yet_valid", result.exp_value),
     };
 
     let nbf_info = match &result.nbf_status {
@@ -299,9 +297,7 @@ fn build_time_travel_json(result: &TimeTravelResult) -> serde_json::Value {
         ClaimStatus::Valid => claim_status_to_json("valid", result.nbf_value),
         ClaimStatus::Absent => json!({"status": "absent"}),
         ClaimStatus::Invalid => claim_status_to_json("invalid", result.nbf_value),
-        ClaimStatus::Expired { .. } => {
-            unreachable!("evaluate_temporal_claims never produces Expired for nbf")
-        }
+        ClaimStatus::Expired { .. } => claim_status_to_json("expired", result.nbf_value),
     };
 
     json!({

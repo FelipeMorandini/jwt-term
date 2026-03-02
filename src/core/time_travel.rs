@@ -39,9 +39,10 @@ pub enum ClaimStatus {
     },
     /// The claim is not present in the token payload.
     Absent,
-    /// The claim is present but its value cannot be represented as a DateTime.
+    /// The claim is present but its value is not usable as a timestamp.
     ///
-    /// This occurs when the timestamp is outside the representable range
+    /// This occurs when the claim value is a non-numeric type (e.g., string,
+    /// boolean) or when the numeric value is outside the representable range
     /// for `DateTime<Utc>` (e.g., extreme i64 values).
     Invalid,
 }
@@ -132,6 +133,8 @@ pub fn evaluate_temporal_claims(payload: &Value, target: &TimeTarget) -> TimeTra
             }
             None => ClaimStatus::Invalid,
         },
+        // Claim is present but not a numeric type (e.g., string, boolean).
+        None if payload.get("exp").is_some() => ClaimStatus::Invalid,
         None => ClaimStatus::Absent,
     };
 
@@ -148,6 +151,7 @@ pub fn evaluate_temporal_claims(payload: &Value, target: &TimeTarget) -> TimeTra
             }
             None => ClaimStatus::Invalid,
         },
+        None if payload.get("nbf").is_some() => ClaimStatus::Invalid,
         None => ClaimStatus::Absent,
     };
 
@@ -191,6 +195,15 @@ fn try_parse_relative(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> {
         return Err(JwtTermError::InvalidTimeExpression {
             expression: expr.to_string(),
             reason: "missing numeric value".to_string(),
+        });
+    }
+
+    // Reject embedded signs (e.g., "--1h" or "+-1h") — the leading sign
+    // is already captured in `sign`, so the numeric part must be digits only.
+    if !number_str.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(JwtTermError::InvalidTimeExpression {
+            expression: expr.to_string(),
+            reason: format!("'{}' is not a valid number", number_str),
         });
     }
 
@@ -304,8 +317,29 @@ fn try_parse_unix_epoch(expr: &str) -> Result<Option<TimeTarget>, JwtTermError> 
 }
 
 /// Extract a numeric timestamp claim from the payload.
+///
+/// Supports both integer and floating-point JSON numbers (JWT NumericDate
+/// values may be encoded as floats by some implementations). Floating-point
+/// values are truncated to whole seconds.
 fn extract_timestamp_value(payload: &Value, claim: &str) -> Option<i64> {
-    payload.get(claim).and_then(Value::as_i64)
+    let value = payload.get(claim)?;
+
+    if let Some(i) = value.as_i64() {
+        return Some(i);
+    }
+
+    // Support NumericDate values encoded as floating-point seconds.
+    if let Some(f) = value.as_f64()
+        && f.is_finite()
+    {
+        #[allow(clippy::cast_possible_truncation)]
+        let truncated = f.trunc();
+        if truncated >= i64::MIN as f64 && truncated <= i64::MAX as f64 {
+            return Some(truncated as i64);
+        }
+    }
+
+    None
 }
 
 /// Truncate a string for safe inclusion in error messages.
@@ -657,5 +691,83 @@ mod tests {
         let result = evaluate_temporal_claims(&payload, &target);
         assert_eq!(result.exp_status, ClaimStatus::Valid);
         assert_eq!(result.nbf_status, ClaimStatus::Valid);
+    }
+
+    // --- Double-signed relative expressions ---
+
+    #[test]
+    fn test_parse_relative_double_negative_rejected() {
+        let err = parse_time_expression("--1h").unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::InvalidTimeExpression { reason, .. }
+                if reason.contains("not a valid number")
+        ));
+    }
+
+    #[test]
+    fn test_parse_relative_plus_minus_rejected() {
+        let err = parse_time_expression("+-1h").unwrap_err();
+        assert!(matches!(
+            err,
+            JwtTermError::InvalidTimeExpression { reason, .. }
+                if reason.contains("not a valid number")
+        ));
+    }
+
+    // --- Floating-point timestamp extraction ---
+
+    #[test]
+    fn test_extract_timestamp_value_float() {
+        let payload = json!({"exp": 1700000000.75});
+        let value = extract_timestamp_value(&payload, "exp");
+        // Float is truncated to whole seconds
+        assert_eq!(value, Some(1700000000));
+    }
+
+    #[test]
+    fn test_extract_timestamp_value_float_negative() {
+        let payload = json!({"exp": -1.5});
+        let value = extract_timestamp_value(&payload, "exp");
+        assert_eq!(value, Some(-1));
+    }
+
+    // --- Non-numeric claim type detection ---
+
+    #[test]
+    fn test_evaluate_string_exp_is_invalid_not_absent() {
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1700000000, 0).unwrap(),
+            expression: "1700000000".to_string(),
+        };
+        let payload = json!({"exp": "not-a-number"});
+        let result = evaluate_temporal_claims(&payload, &target);
+        assert_eq!(result.exp_status, ClaimStatus::Invalid);
+        assert_eq!(result.exp_value, None);
+    }
+
+    #[test]
+    fn test_evaluate_boolean_nbf_is_invalid_not_absent() {
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1700000000, 0).unwrap(),
+            expression: "1700000000".to_string(),
+        };
+        let payload = json!({"nbf": true});
+        let result = evaluate_temporal_claims(&payload, &target);
+        assert_eq!(result.nbf_status, ClaimStatus::Invalid);
+        assert_eq!(result.nbf_value, None);
+    }
+
+    #[test]
+    fn test_evaluate_float_exp_is_valid() {
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1600000000, 0).unwrap(),
+            expression: "1600000000".to_string(),
+        };
+        // Float exp should be truncated and treated as a valid timestamp
+        let payload = json!({"exp": 1700000000.5});
+        let result = evaluate_temporal_claims(&payload, &target);
+        assert_eq!(result.exp_status, ClaimStatus::Valid);
+        assert_eq!(result.exp_value, Some(1700000000));
     }
 }
