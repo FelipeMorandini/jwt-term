@@ -85,6 +85,16 @@ pub fn decode_token(token: &str) -> Result<DecodedToken, JwtTermError> {
     })
 }
 
+/// Sanitize a `serde_json` error into a generic message.
+///
+/// Raw `serde_json` error strings can contain fragments of the decoded
+/// content (e.g., "expected value at line 1 column 5: <content>"), which
+/// may leak sensitive payload data. This function extracts only the
+/// structural error information (line and column) without the content.
+fn sanitize_json_error(e: &serde_json::Error) -> String {
+    format!("invalid JSON at line {}, column {}", e.line(), e.column())
+}
+
 /// Base64url-decode a segment and parse it as JSON.
 fn decode_segment(encoded: &str, segment_name: &str) -> Result<Value, JwtTermError> {
     let bytes = URL_SAFE_NO_PAD
@@ -95,7 +105,7 @@ fn decode_segment(encoded: &str, segment_name: &str) -> Result<Value, JwtTermErr
 
     serde_json::from_slice(&bytes).map_err(|e| JwtTermError::JsonParseError {
         segment: segment_name.to_string(),
-        reason: e.to_string(),
+        reason: sanitize_json_error(&e),
     })
 }
 
@@ -236,5 +246,41 @@ mod tests {
         assert_eq!(decoded.header["alg"], "none");
         assert!(decoded.payload.as_object().unwrap().is_empty());
         assert_eq!(decoded.signature.as_str(), "");
+    }
+
+    // --- sanitize_json_error ---
+
+    #[test]
+    fn test_sanitize_json_error_format() {
+        // Create a real serde_json error by parsing invalid JSON
+        let err = serde_json::from_str::<Value>("not json").unwrap_err();
+        let sanitized = sanitize_json_error(&err);
+        assert!(sanitized.starts_with("invalid JSON at line "));
+        assert!(sanitized.contains("column"));
+        // Must not contain the raw input content
+        assert!(!sanitized.contains("not json"));
+    }
+
+    #[test]
+    fn test_sanitize_json_error_does_not_leak_content() {
+        // Parse something that looks like a secret in the JSON
+        let err = serde_json::from_str::<Value>("{\"password\":\"s3cret\",}").unwrap_err();
+        let sanitized = sanitize_json_error(&err);
+        assert!(!sanitized.contains("password"));
+        assert!(!sanitized.contains("s3cret"));
+        assert!(sanitized.contains("invalid JSON"));
+    }
+
+    #[test]
+    fn test_decode_segment_json_error_uses_sanitized_message() {
+        // Base64url-encode a non-JSON string: "hello world" -> "aGVsbG8gd29ybGQ"
+        let err = decode_segment("aGVsbG8gd29ybGQ", "payload").unwrap_err();
+        match err {
+            JwtTermError::JsonParseError { reason, .. } => {
+                assert!(reason.starts_with("invalid JSON at line "));
+                assert!(!reason.contains("hello"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

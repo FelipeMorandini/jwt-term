@@ -97,6 +97,27 @@ jwt-term verify [OPTIONS] [TOKEN]
 
 Supported algorithms: HS256, HS384, HS512, RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, EdDSA.
 
+### completions
+
+Generate shell completion scripts for tab-completion support.
+
+```bash
+jwt-term completions <SHELL>
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
+
+```bash
+# Bash
+jwt-term completions bash > /etc/bash_completion.d/jwt-term
+
+# Zsh (add to your fpath)
+jwt-term completions zsh > ~/.zfunc/_jwt-term
+
+# Fish
+jwt-term completions fish > ~/.config/fish/completions/jwt-term.fish
+```
+
 ## Security
 
 jwt-term is designed with security as a first-class concern:

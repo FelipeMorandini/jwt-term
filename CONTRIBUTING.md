@@ -47,7 +47,7 @@ All commands are run from the project root.
 | Build (debug)         | `cargo build`                           |
 | Build (release)       | `cargo build --release`                 |
 | Run all tests         | `cargo test`                            |
-| Run clippy lints      | `cargo clippy -- -D warnings`           |
+| Run clippy lints      | `cargo clippy --all-targets --all-features -- -D warnings` |
 | Check formatting      | `cargo fmt -- --check`                  |
 | Apply formatting      | `cargo fmt`                             |
 | Run a specific test   | `cargo test test_name`                  |
@@ -57,7 +57,7 @@ Before opening a pull request, make sure all four checks pass:
 
 ```sh
 cargo fmt -- --check
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 cargo build
 cargo test
 ```
@@ -124,7 +124,7 @@ Keep the first line under 72 characters. Use the body for additional context whe
 3. **Ensure all checks pass** locally:
    ```sh
    cargo fmt -- --check
-   cargo clippy -- -D warnings
+   cargo clippy --all-targets --all-features -- -D warnings
    cargo build
    cargo test
    ```

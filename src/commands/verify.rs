@@ -168,7 +168,7 @@ fn resolve_key_from_file(path: &Path) -> Result<KeyMaterial, JwtTermError> {
         });
     }
     let bytes = read_bounded_file(file, path)?;
-    Ok(KeyMaterial::PemKey(bytes))
+    Ok(KeyMaterial::PemKey(Zeroizing::new(bytes)))
 }
 
 /// Reject conflicting key options when `--jwks-url` is present.

@@ -48,7 +48,7 @@ fn test_version_flag() {
         .assert()
         .success()
         .stdout(predicate::str::contains("jwt-term"))
-        .stdout(predicate::str::contains("0.1.0"));
+        .stdout(predicate::str::contains("1.0.0"));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn test_short_version_flag() {
         .arg("-V")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.1.0"));
+        .stdout(predicate::str::contains("1.0.0"));
 }
 
 // --- Subcommand Help ---
@@ -1030,6 +1030,62 @@ fn test_verify_without_time_travel_json_has_no_time_travel_field() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
     assert!(parsed.get("time_travel").is_none());
+}
+
+// --- Completions ---
+
+#[test]
+fn test_completions_bash_generates_output() {
+    cmd()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("jwt-term"));
+}
+
+#[test]
+fn test_completions_zsh_generates_output() {
+    cmd()
+        .args(["completions", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("jwt-term"));
+}
+
+#[test]
+fn test_completions_fish_generates_output() {
+    cmd()
+        .args(["completions", "fish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("jwt-term"));
+}
+
+#[test]
+fn test_completions_help_shows_shell_arg() {
+    cmd()
+        .args(["completions", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("<SHELL>"));
+}
+
+#[test]
+fn test_completions_no_shell_arg_fails() {
+    cmd()
+        .arg("completions")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("<SHELL>").or(predicate::str::contains("required")));
+}
+
+#[test]
+fn test_completions_invalid_shell_fails() {
+    cmd()
+        .args(["completions", "invalid-shell"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 // --- Exit Codes ---
