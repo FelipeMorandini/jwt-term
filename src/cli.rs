@@ -130,12 +130,9 @@ pub struct CompletionsArgs {
 /// Users redirect the output to the appropriate shell completion
 /// directory (e.g., `jwt-term completions bash > /etc/bash_completion.d/jwt-term`).
 pub fn generate_completions(shell: Shell) {
-    clap_complete::generate(
-        shell,
-        &mut Cli::command(),
-        "jwt-term",
-        &mut std::io::stdout(),
-    );
+    let mut cmd = Cli::command();
+    let name = cmd.get_name().to_owned();
+    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
 }
 
 /// Parse a string into a `Zeroizing<String>` for secure CLI arguments.
