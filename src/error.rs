@@ -6,11 +6,7 @@
 use thiserror::Error;
 
 /// Errors that can occur during JWT operations.
-///
-/// Variants are defined upfront for all planned features. Some variants
-/// are not yet used and will be activated in later implementation phases.
 #[derive(Debug, Error)]
-#[allow(dead_code)]
 pub enum JwtTermError {
     /// The provided token does not have the expected three-part structure.
     #[error("invalid token format: expected 'header.payload.signature' structure")]
@@ -157,13 +153,6 @@ pub enum JwtTermError {
     /// No key material was provided for signature validation.
     #[error("no key material provided: use --secret, --secret-env, --key-file, or --jwks-url")]
     NoKeyProvided,
-
-    /// The command is not yet implemented.
-    #[error("{command} is not yet implemented")]
-    NotImplemented {
-        /// Name of the unimplemented command.
-        command: String,
-    },
 }
 
 #[cfg(test)]
@@ -364,14 +353,6 @@ mod tests {
         assert!(err.to_string().contains("kid"));
         assert!(err.to_string().contains("Key ID"));
         assert!(err.to_string().contains("multiple keys"));
-    }
-
-    #[test]
-    fn test_not_implemented_display() {
-        let err = JwtTermError::NotImplemented {
-            command: "decode".to_string(),
-        };
-        assert_eq!(err.to_string(), "decode is not yet implemented");
     }
 
     #[test]

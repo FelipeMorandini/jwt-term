@@ -7,27 +7,53 @@
 //! - Booleans in magenta
 //! - Null in red
 
+use std::io::{self, Write};
+
 use colored::Colorize;
 use serde_json::Value;
 
-/// Print a JSON value with colorized syntax highlighting.
+/// Maximum nesting depth for colorized JSON rendering.
+///
+/// Deeply nested payloads beyond this limit fall back to plain
+/// `serde_json` output to prevent stack overflow from recursion.
+const MAX_DEPTH: usize = 20;
+
+/// Write a JSON value with colorized syntax highlighting to the given writer.
 ///
 /// Renders the value with 2-space indentation and ANSI color codes.
 /// When `use_color` is false, outputs plain JSON without colors
 /// (suitable for machine consumption or piping).
-pub fn print_json(value: &Value, use_color: bool) {
+///
+/// Falls back to plain output for deeply nested values (> [`MAX_DEPTH`])
+/// to prevent stack overflow from recursive colorization.
+pub fn write_json(writer: &mut impl Write, value: &Value, use_color: bool) -> io::Result<()> {
     if use_color {
-        println!("{}", colorize_value(value, 0));
+        writeln!(writer, "{}", colorize_value(value, 0))
     } else {
-        println!(
+        writeln!(
+            writer,
             "{}",
             serde_json::to_string_pretty(value).unwrap_or_default()
-        );
+        )
     }
 }
 
+/// Print a JSON value with colorized syntax highlighting to stdout.
+///
+/// Convenience wrapper around [`write_json`] for direct terminal output.
+pub fn print_json(value: &Value, use_color: bool) {
+    let _ = write_json(&mut io::stdout(), value, use_color);
+}
+
 /// Render a JSON value as a colorized string at the given indentation depth.
+///
+/// Falls back to plain `serde_json` output when depth exceeds [`MAX_DEPTH`]
+/// to prevent stack overflow from deeply nested payloads.
 fn colorize_value(value: &Value, depth: usize) -> String {
+    if depth > MAX_DEPTH {
+        return serde_json::to_string_pretty(value).unwrap_or_default();
+    }
+
     match value {
         Value::Null => "null".red().to_string(),
         Value::Bool(b) => b.to_string().magenta().to_string(),
@@ -177,5 +203,54 @@ mod tests {
         // the underlying serialization works correctly
         assert!(expected.contains("key"));
         assert!(expected.contains("value"));
+    }
+
+    // --- write_json tests (Write trait) ---
+
+    #[test]
+    fn test_write_json_plain_output_to_buffer() {
+        let value = json!({"alg": "HS256"});
+        let mut buf = Vec::new();
+        write_json(&mut buf, &value, false).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("\"alg\""));
+        assert!(output.contains("\"HS256\""));
+        assert!(output.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_write_json_colored_output_to_buffer() {
+        let value = json!({"key": "value"});
+        let mut buf = Vec::new();
+        write_json(&mut buf, &value, true).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("key"));
+        assert!(output.contains("value"));
+    }
+
+    // --- MAX_DEPTH fallback ---
+
+    #[test]
+    fn test_colorize_value_at_max_depth_falls_back() {
+        let value = json!({"nested": "value"});
+        // At depth > MAX_DEPTH, should fall back to serde_json output
+        let result = colorize_value(&value, MAX_DEPTH + 1);
+        let expected = serde_json::to_string_pretty(&value).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_colorize_value_at_max_depth_boundary() {
+        let value = json!("hello");
+        // At exactly MAX_DEPTH, should still colorize
+        let result = colorize_value(&value, MAX_DEPTH);
+        assert!(result.contains("hello"));
+    }
+
+    #[test]
+    fn test_colorize_value_beyond_max_depth_scalar() {
+        let value = json!(42);
+        let result = colorize_value(&value, MAX_DEPTH + 1);
+        assert_eq!(result, "42");
     }
 }

@@ -48,5 +48,9 @@ fn run() -> Result<ExitCode> {
                 ExitCode::FAILURE
             })
         }
+        Commands::Completions(args) => {
+            cli::generate_completions(args.shell);
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }

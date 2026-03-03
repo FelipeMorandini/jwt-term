@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.x.x   | Yes       |
+| 1.x.x   | Yes       |
 
 ## Reporting a Vulnerability
 
@@ -38,7 +38,7 @@ The following are in scope for security reports:
 ### Out of Scope
 
 - Tokens passed as CLI arguments being visible in shell history (this is documented behavior; use `--token-env` or stdin instead)
-- Denial of service through extremely large tokens (a size limit is planned but not yet enforced)
+- Denial of service through extremely large tokens (a 16 KB size limit is enforced for token input)
 
 ## Security Design
 

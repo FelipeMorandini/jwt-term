@@ -3,6 +3,8 @@
 //! Renders human-readable status information for JWT temporal claims
 //! (`exp`, `iat`, `nbf`) including expiry status with color coding.
 
+use std::io::{self, Write};
+
 use chrono::{DateTime, TimeDelta, Utc};
 use colored::Colorize;
 use serde_json::Value;
@@ -10,86 +12,109 @@ use serde_json::Value;
 use crate::core::time_travel::{ClaimStatus, TimeTravelResult};
 use crate::core::validator::ValidationOutcome;
 
-/// Display the temporal status of a JWT's claims.
+/// Write the temporal status of a JWT's claims to the given writer.
 ///
-/// Examines `exp`, `iat`, and `nbf` claims in the payload and prints
+/// Examines `exp`, `iat`, and `nbf` claims in the payload and writes
 /// human-readable status information:
 /// - Expired tokens: red "EXPIRED (X ago)"
 /// - Valid tokens: green "VALID (expires in X)"
 /// - Not-yet-valid tokens: yellow "NOT YET VALID (valid in X)"
-pub fn display_token_status(payload: &Value) {
+pub fn write_token_status(w: &mut impl Write, payload: &Value) -> io::Result<()> {
     let now = Utc::now();
     let mut has_temporal = false;
 
     if let Some(iat) = extract_timestamp(payload, "iat") {
         has_temporal = true;
-        println!("  {} {}", "Issued at: ".bold(), format_timestamp(iat));
+        writeln!(w, "  {} {}", "Issued at: ".bold(), format_timestamp(iat))?;
     }
 
     if let Some(nbf) = extract_timestamp(payload, "nbf") {
         has_temporal = true;
-        display_nbf_status(nbf, now);
+        write_nbf_status(w, nbf, now)?;
     }
 
     if let Some(exp) = extract_timestamp(payload, "exp") {
         has_temporal = true;
-        display_exp_status(exp, now);
+        write_exp_status(w, exp, now)?;
     }
 
     if !has_temporal {
-        println!("  {}", "No temporal claims found".dimmed());
+        writeln!(w, "  {}", "No temporal claims found".dimmed())?;
     }
+
+    Ok(())
 }
 
-/// Display expiry (`exp`) status with color coding.
-fn display_exp_status(exp: DateTime<Utc>, now: DateTime<Utc>) {
+/// Display the temporal status of a JWT's claims to stdout.
+///
+/// Convenience wrapper around [`write_token_status`].
+pub fn display_token_status(payload: &Value) {
+    let _ = write_token_status(&mut io::stdout(), payload);
+}
+
+/// Write expiry (`exp`) status with color coding.
+fn write_exp_status(w: &mut impl Write, exp: DateTime<Utc>, now: DateTime<Utc>) -> io::Result<()> {
     if now >= exp {
         let ago = format_duration(now.signed_duration_since(exp));
-        println!(
+        writeln!(
+            w,
             "  {} {} ({})",
             "Expires:  ".bold(),
             "EXPIRED".red().bold(),
             format!("{} ago", ago).red()
-        );
+        )
     } else {
         let remaining = format_duration(exp.signed_duration_since(now));
-        println!(
+        writeln!(
+            w,
             "  {} {} ({})",
             "Expires:  ".bold(),
             "VALID".green().bold(),
             format!("expires in {}", remaining).green()
-        );
+        )
     }
 }
 
-/// Display not-before (`nbf`) status with color coding.
-fn display_nbf_status(nbf: DateTime<Utc>, now: DateTime<Utc>) {
+/// Write not-before (`nbf`) status with color coding.
+fn write_nbf_status(w: &mut impl Write, nbf: DateTime<Utc>, now: DateTime<Utc>) -> io::Result<()> {
     if now < nbf {
         let remaining = format_duration(nbf.signed_duration_since(now));
-        println!(
+        writeln!(
+            w,
             "  {} {} ({})",
             "Not before:".bold(),
             "NOT YET VALID".yellow().bold(),
             format!("valid in {}", remaining).yellow()
-        );
+        )
     } else {
-        println!("  {} {}", "Not before:".bold(), format_timestamp(nbf));
+        writeln!(w, "  {} {}", "Not before:".bold(), format_timestamp(nbf))
     }
 }
 
-/// Display the result of signature validation with color coding.
+/// Write the result of signature validation with color coding.
 ///
 /// - Valid: green "VALID SIGNATURE (algorithm)"
 /// - Invalid: red "INVALID SIGNATURE (reason)"
-pub fn display_validation_result(outcome: &ValidationOutcome, algorithm: &str) {
+pub fn write_validation_result(
+    w: &mut impl Write,
+    outcome: &ValidationOutcome,
+    algorithm: &str,
+) -> io::Result<()> {
     match outcome {
         ValidationOutcome::Valid => {
-            println!("  {} ({})", "VALID SIGNATURE".green().bold(), algorithm);
+            writeln!(w, "  {} ({})", "VALID SIGNATURE".green().bold(), algorithm)
         }
         ValidationOutcome::Invalid { reason } => {
-            println!("  {} ({})", "INVALID SIGNATURE".red().bold(), reason);
+            writeln!(w, "  {} ({})", "INVALID SIGNATURE".red().bold(), reason)
         }
     }
+}
+
+/// Display the result of signature validation to stdout.
+///
+/// Convenience wrapper around [`write_validation_result`].
+pub fn display_validation_result(outcome: &ValidationOutcome, algorithm: &str) {
+    let _ = write_validation_result(&mut io::stdout(), outcome, algorithm);
 }
 
 /// Extract a Unix timestamp claim from the payload as a `DateTime<Utc>`.
@@ -123,21 +148,29 @@ fn format_duration(duration: TimeDelta) -> String {
     }
 }
 
-/// Display time-travel evaluation results with color coding.
+/// Write time-travel evaluation results with color coding.
 ///
 /// Shows the simulated timestamp, the original expression, and
 /// the status of `exp` and `nbf` claims at that simulated time.
-pub fn display_time_travel_status(result: &TimeTravelResult) {
+pub fn write_time_travel_status(w: &mut impl Write, result: &TimeTravelResult) -> io::Result<()> {
     let expression = sanitize_for_terminal(&result.target.expression);
-    println!(
+    writeln!(
+        w,
         "  {} {} ({})",
         "Simulating:".bold(),
         format_timestamp(result.target.timestamp),
         expression
-    );
+    )?;
 
-    display_tt_exp(&result.exp_status);
-    display_tt_nbf(&result.nbf_status);
+    write_tt_exp(w, &result.exp_status)?;
+    write_tt_nbf(w, &result.nbf_status)
+}
+
+/// Display time-travel evaluation results to stdout.
+///
+/// Convenience wrapper around [`write_time_travel_status`].
+pub fn display_time_travel_status(result: &TimeTravelResult) {
+    let _ = write_time_travel_status(&mut io::stdout(), result);
 }
 
 /// Sanitize a string for safe terminal display by removing control characters.
@@ -150,92 +183,102 @@ fn sanitize_for_terminal(s: &str) -> String {
         .collect()
 }
 
-/// Display the `exp` claim status at a simulated time.
-fn display_tt_exp(status: &ClaimStatus) {
+/// Write the `exp` claim status at a simulated time.
+fn write_tt_exp(w: &mut impl Write, status: &ClaimStatus) -> io::Result<()> {
     match status {
         ClaimStatus::Expired { elapsed } => {
             let ago = format_duration(*elapsed);
-            println!(
+            writeln!(
+                w,
                 "  {} {} ({})",
                 "Expires:  ".bold(),
                 "EXPIRED at simulated time".red().bold(),
                 format!("expired {} before simulated time", ago).red()
-            );
+            )
         }
         ClaimStatus::Valid => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Expires:  ".bold(),
                 "VALID at simulated time".green().bold(),
-            );
+            )
         }
         ClaimStatus::Absent => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Expires:  ".bold(),
                 "no exp claim present".dimmed()
-            );
+            )
         }
         ClaimStatus::Invalid => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Expires:  ".bold(),
                 "INVALID exp value".red().bold()
-            );
+            )
         }
         ClaimStatus::NotYetValid { remaining } => {
             let until = format_duration(*remaining);
-            println!(
+            writeln!(
+                w,
                 "  {} {} ({})",
                 "Expires:  ".bold(),
                 "NOT YET VALID at simulated time".yellow().bold(),
                 format!("expires in {}", until).yellow()
-            );
+            )
         }
     }
 }
 
-/// Display the `nbf` claim status at a simulated time.
-fn display_tt_nbf(status: &ClaimStatus) {
+/// Write the `nbf` claim status at a simulated time.
+fn write_tt_nbf(w: &mut impl Write, status: &ClaimStatus) -> io::Result<()> {
     match status {
         ClaimStatus::NotYetValid { remaining } => {
             let until = format_duration(*remaining);
-            println!(
+            writeln!(
+                w,
                 "  {} {} ({})",
                 "Not before:".bold(),
                 "NOT YET VALID at simulated time".yellow().bold(),
                 format!("becomes valid in {}", until).yellow()
-            );
+            )
         }
         ClaimStatus::Valid => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Not before:".bold(),
                 "VALID at simulated time".green().bold(),
-            );
+            )
         }
         ClaimStatus::Absent => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Not before:".bold(),
                 "no nbf claim present".dimmed()
-            );
+            )
         }
         ClaimStatus::Invalid => {
-            println!(
+            writeln!(
+                w,
                 "  {} {}",
                 "Not before:".bold(),
                 "INVALID nbf value".red().bold()
-            );
+            )
         }
         ClaimStatus::Expired { elapsed } => {
             let ago = format_duration(*elapsed);
-            println!(
+            writeln!(
+                w,
                 "  {} {} ({})",
                 "Not before:".bold(),
                 "EXPIRED at simulated time".red().bold(),
                 format!("expired {} before simulated time", ago).red()
-            );
+            )
         }
     }
 }
@@ -336,5 +379,101 @@ mod tests {
             sanitize_for_terminal("2024-06-01T00:00:00Z"),
             "2024-06-01T00:00:00Z"
         );
+    }
+
+    // --- write_* function tests (Write trait) ---
+
+    #[test]
+    fn test_write_token_status_with_exp_claim() {
+        let payload = json!({"exp": 1700000000});
+        let mut buf = Vec::new();
+        write_token_status(&mut buf, &payload).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Expires:"));
+    }
+
+    #[test]
+    fn test_write_token_status_with_iat_claim() {
+        let payload = json!({"iat": 1516239022});
+        let mut buf = Vec::new();
+        write_token_status(&mut buf, &payload).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Issued at:"));
+    }
+
+    #[test]
+    fn test_write_token_status_no_temporal_claims() {
+        let payload = json!({"sub": "user"});
+        let mut buf = Vec::new();
+        write_token_status(&mut buf, &payload).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("No temporal claims found"));
+    }
+
+    #[test]
+    fn test_write_validation_result_valid() {
+        let mut buf = Vec::new();
+        write_validation_result(&mut buf, &ValidationOutcome::Valid, "HS256").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("VALID SIGNATURE"));
+        assert!(output.contains("HS256"));
+    }
+
+    #[test]
+    fn test_write_validation_result_invalid() {
+        let outcome = ValidationOutcome::Invalid {
+            reason: "signature does not match".to_string(),
+        };
+        let mut buf = Vec::new();
+        write_validation_result(&mut buf, &outcome, "RS256").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("INVALID SIGNATURE"));
+        assert!(output.contains("signature does not match"));
+    }
+
+    #[test]
+    fn test_write_time_travel_status_with_expired() {
+        use crate::core::time_travel::{TimeTarget, TimeTravelResult};
+
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(2000000000, 0).unwrap(),
+            expression: "+7d".to_string(),
+        };
+        let result = TimeTravelResult {
+            target,
+            exp_status: ClaimStatus::Expired {
+                elapsed: TimeDelta::seconds(3600),
+            },
+            nbf_status: ClaimStatus::Absent,
+            exp_value: Some(1999996400),
+            nbf_value: None,
+        };
+        let mut buf = Vec::new();
+        write_time_travel_status(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Simulating"));
+        assert!(output.contains("EXPIRED at simulated time"));
+        assert!(output.contains("no nbf claim present"));
+    }
+
+    #[test]
+    fn test_write_time_travel_status_with_valid() {
+        use crate::core::time_travel::{TimeTarget, TimeTravelResult};
+
+        let target = TimeTarget {
+            timestamp: DateTime::from_timestamp(1900000000, 0).unwrap(),
+            expression: "1900000000".to_string(),
+        };
+        let result = TimeTravelResult {
+            target,
+            exp_status: ClaimStatus::Valid,
+            nbf_status: ClaimStatus::Valid,
+            exp_value: Some(2000000000),
+            nbf_value: Some(1800000000),
+        };
+        let mut buf = Vec::new();
+        write_time_travel_status(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("VALID at simulated time"));
     }
 }

@@ -111,8 +111,8 @@ jwt-term/
 ### `src/cli.rs` -- CLI Argument Definitions
 
 - Defines the `Cli` struct with clap derive macros.
-- Defines the `Commands` enum with one variant per subcommand (`Decode`, `Verify`).
-- Defines `DecodeArgs` and `VerifyArgs` with typed fields for each flag and argument.
+- Defines the `Commands` enum with one variant per subcommand (`Decode`, `Verify`, `Completions`).
+- Defines `DecodeArgs`, `VerifyArgs`, and `CompletionsArgs` with typed fields for each flag and argument.
 - Implements custom `fmt::Debug` on argument structs to redact sensitive fields (tokens and secrets), preventing accidental leakage through debug output or error chains.
 
 ### `src/error.rs` -- Domain Errors
@@ -178,7 +178,7 @@ Security is a first-class concern in jwt-term. The following measures are enforc
 
 ### Secret Handling
 
-- **Zeroize.** The `zeroize` crate (with derive support) will be used to ensure that sensitive data (HMAC secrets, private keys, raw token strings) is overwritten in memory when dropped. This is planned for implementation alongside the verify command.
+- **Zeroize.** The `zeroize` crate wraps all sensitive data (`Zeroizing<String>` for tokens and secrets, `Zeroizing<Vec<u8>>` for HMAC keys and PEM key bytes) so that memory is overwritten with zeros when the value is dropped.
 - **Redacted Debug.** `DecodeArgs` and `VerifyArgs` implement custom `fmt::Debug` that replaces token and secret values with `[REDACTED]`. This prevents secrets from appearing in error chains, debug output, or logs.
 - **No logging of secrets.** The codebase never prints or logs raw tokens, secrets, or key material.
 
@@ -197,11 +197,9 @@ Security is a first-class concern in jwt-term. The following measures are enforc
 
 ### Unit Tests
 
-Unit tests will be defined in `#[cfg(test)] mod tests` blocks colocated with the implementation. They test individual functions and types in isolation.
+Unit tests are defined in `#[cfg(test)] mod tests` blocks colocated with the implementation. They test individual functions and types in isolation.
 
-Intended location: alongside the code in modules under `src/core/` and `src/display/`.
-
-Example pattern: `src/error.rs` contains tests for error variant `Display` implementations. As each module is implemented, corresponding unit tests will be added inline.
+Location: alongside the code in modules under `src/core/`, `src/display/`, `src/commands/`, and `src/error.rs`. Each module contains tests covering happy paths, edge cases, and error conditions.
 
 ### Integration Tests
 
@@ -233,5 +231,5 @@ cargo test --lib
 cargo test --test cli_test
 
 # A specific test by name
-cargo test test_decode_with_token_returns_not_implemented
+cargo test test_decode_valid_token
 ```

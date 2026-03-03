@@ -26,13 +26,14 @@ pub enum ValidationOutcome {
 }
 
 /// Key material for signature validation.
+///
+/// Both variants are wrapped in `Zeroizing` to ensure key material
+/// is cleared from memory when no longer needed.
 pub enum KeyMaterial {
     /// HMAC shared secret (for HS256, HS384, HS512).
-    /// Wrapped in `Zeroizing` to ensure the secret is cleared from
-    /// memory when no longer needed.
     Secret(Zeroizing<Vec<u8>>),
     /// PEM-encoded public key (for RSA, ECDSA, EdDSA).
-    PemKey(Vec<u8>),
+    PemKey(Zeroizing<Vec<u8>>),
 }
 
 /// Validate a JWT's signature using the provided key material.
@@ -136,7 +137,7 @@ fn validate_key_algorithm_match(alg: Algorithm, key: &KeyMaterial) -> Result<(),
 /// Create a `DecodingKey` from the key material and algorithm.
 fn create_decoding_key(alg: Algorithm, key: &KeyMaterial) -> Result<DecodingKey, JwtTermError> {
     match key {
-        KeyMaterial::Secret(secret) => Ok(DecodingKey::from_secret(secret)),
+        KeyMaterial::Secret(secret) => Ok(DecodingKey::from_secret(secret.as_slice())),
         KeyMaterial::PemKey(pem) => match alg {
             Algorithm::RS256
             | Algorithm::RS384
@@ -224,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_hmac_with_pem_key_mismatch() {
-        let key = KeyMaterial::PemKey(vec![]);
+        let key = KeyMaterial::PemKey(Zeroizing::new(vec![]));
         let err = validate_key_algorithm_match(Algorithm::HS256, &key).unwrap_err();
         assert!(
             matches!(err, JwtTermError::SignatureInvalid { reason } if reason.contains("shared secret"))
@@ -248,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_rsa_with_pem_matches() {
-        let key = KeyMaterial::PemKey(vec![1, 2, 3]);
+        let key = KeyMaterial::PemKey(Zeroizing::new(vec![1, 2, 3]));
         assert!(validate_key_algorithm_match(Algorithm::RS256, &key).is_ok());
     }
 
@@ -323,7 +324,7 @@ mod tests {
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &test_claims(), &encoding_key).unwrap();
 
-        let key = KeyMaterial::PemKey(public_key.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(public_key.as_bytes().to_vec()));
         let result = validate_signature(&token, "RS256", &key).unwrap();
         assert_eq!(result, ValidationOutcome::Valid);
     }
@@ -338,7 +339,7 @@ mod tests {
 
         // Use EC public key instead of RSA — should fail to parse
         let wrong_key = include_str!("../../tests/fixtures/ec_public.pem");
-        let key = KeyMaterial::PemKey(wrong_key.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(wrong_key.as_bytes().to_vec()));
         let result = validate_signature(&token, "RS256", &key);
         assert!(result.is_err());
     }
@@ -354,7 +355,7 @@ mod tests {
         let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &test_claims(), &encoding_key).unwrap();
 
-        let key = KeyMaterial::PemKey(public_key.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(public_key.as_bytes().to_vec()));
         let result = validate_signature(&token, "ES256", &key).unwrap();
         assert_eq!(result, ValidationOutcome::Valid);
     }
@@ -369,7 +370,7 @@ mod tests {
 
         // Use a different secret — signature mismatch
         let rsa_pub = include_str!("../../tests/fixtures/rsa_public.pem");
-        let key = KeyMaterial::PemKey(rsa_pub.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(rsa_pub.as_bytes().to_vec()));
         let result = validate_signature(&token, "ES256", &key);
         assert!(result.is_err());
     }
@@ -387,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_validate_rsa_invalid_pem() {
-        let key = KeyMaterial::PemKey(b"not-a-valid-pem".to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(b"not-a-valid-pem".to_vec()));
         let result = create_decoding_key(Algorithm::RS256, &key);
         assert!(matches!(
             result,
@@ -397,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_validate_ec_invalid_pem() {
-        let key = KeyMaterial::PemKey(b"not-a-valid-pem".to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(b"not-a-valid-pem".to_vec()));
         let result = create_decoding_key(Algorithm::ES256, &key);
         assert!(matches!(
             result,
@@ -416,7 +417,7 @@ mod tests {
         let encoding_key = EncodingKey::from_ed_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &test_claims(), &encoding_key).unwrap();
 
-        let key = KeyMaterial::PemKey(public_key.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(public_key.as_bytes().to_vec()));
         let result = validate_signature(&token, "EdDSA", &key).unwrap();
         assert_eq!(result, ValidationOutcome::Valid);
     }
@@ -431,14 +432,14 @@ mod tests {
 
         // Use EC public key instead of Ed25519 — should fail
         let wrong_key = include_str!("../../tests/fixtures/ec_public.pem");
-        let key = KeyMaterial::PemKey(wrong_key.as_bytes().to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(wrong_key.as_bytes().to_vec()));
         let result = validate_signature(&token, "EdDSA", &key);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_eddsa_invalid_pem() {
-        let key = KeyMaterial::PemKey(b"not-a-valid-pem".to_vec());
+        let key = KeyMaterial::PemKey(Zeroizing::new(b"not-a-valid-pem".to_vec()));
         let result = create_decoding_key(Algorithm::EdDSA, &key);
         assert!(matches!(
             result,

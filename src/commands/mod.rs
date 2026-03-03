@@ -66,17 +66,16 @@ pub fn resolve_token(
         return validate_token_size(trimmed).map(Zeroizing::new);
     }
 
-    read_token_from_stdin().map(Zeroizing::new)
+    read_token_from_stdin()
 }
 
 /// Read a token from stdin with bounded input.
 ///
 /// Only attempts to read if stdin is not a TTY (i.e., input is piped).
 /// Limits the read to `MAX_TOKEN_SIZE + 1` bytes to prevent resource
-/// exhaustion from unbounded input. Uses `Zeroizing<String>` for the
-/// internal buffer to ensure sensitive token data is cleared from
-/// memory on drop.
-fn read_token_from_stdin() -> Result<String, JwtTermError> {
+/// exhaustion from unbounded input. Returns `Zeroizing<String>` to
+/// ensure sensitive token data is cleared from memory on drop.
+fn read_token_from_stdin() -> Result<Zeroizing<String>, JwtTermError> {
     if io::stdin().is_terminal() {
         return Err(JwtTermError::NoTokenProvided);
     }
@@ -94,7 +93,7 @@ fn read_token_from_stdin() -> Result<String, JwtTermError> {
         return Err(JwtTermError::NoTokenProvided);
     }
 
-    validate_token_size(trimmed)
+    validate_token_size(trimmed).map(Zeroizing::new)
 }
 
 /// Validate that a token does not exceed the maximum size.

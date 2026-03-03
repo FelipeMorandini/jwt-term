@@ -12,7 +12,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use zeroize::Zeroizing;
 
 /// A blazing-fast, secure, and offline-first CLI for inspecting,
@@ -34,6 +35,9 @@ pub enum Commands {
 
     /// Verify a JWT's signature using a secret, key file, or JWKS endpoint.
     Verify(VerifyArgs),
+
+    /// Generate shell completions for the specified shell.
+    Completions(CompletionsArgs),
 }
 
 /// Arguments for the `decode` subcommand.
@@ -111,6 +115,27 @@ pub struct VerifyArgs {
     /// Output raw JSON without colors (machine-readable).
     #[arg(long)]
     pub json: bool,
+}
+
+/// Arguments for the `completions` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct CompletionsArgs {
+    /// The shell to generate completions for.
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+/// Generate shell completion scripts and write them to stdout.
+///
+/// Users redirect the output to the appropriate shell completion
+/// directory (e.g., `jwt-term completions bash > /etc/bash_completion.d/jwt-term`).
+pub fn generate_completions(shell: Shell) {
+    clap_complete::generate(
+        shell,
+        &mut Cli::command(),
+        "jwt-term",
+        &mut std::io::stdout(),
+    );
 }
 
 /// Parse a string into a `Zeroizing<String>` for secure CLI arguments.
