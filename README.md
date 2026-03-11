@@ -15,26 +15,68 @@ Stop pasting sensitive tokens into web portals. Debug them in your terminal.
 
 ## Installation
 
-### From source
+### Homebrew (macOS & Linux)
 
 ```bash
-cargo install --path .
+brew install felipemorandini/tap/jwt-term
 ```
 
-### From releases
+### Cargo (crates.io)
 
-Download the pre-built binary for your platform from [GitHub Releases](https://github.com/felipemorandini/jwt-term/releases).
+```bash
+cargo install jwt-term
+```
 
-| Platform | Architecture | Download |
-|----------|-------------|----------|
-| Linux | x86_64 | `jwt-term-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` |
-| Linux | ARM64 | `jwt-term-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz` |
-| macOS | x86_64 (Intel) | `jwt-term-vX.Y.Z-x86_64-apple-darwin.tar.gz` |
-| macOS | ARM64 (Apple Silicon) | `jwt-term-vX.Y.Z-aarch64-apple-darwin.tar.gz` |
-| Windows | x86_64 | `jwt-term-vX.Y.Z-x86_64-pc-windows-msvc.zip` |
-| Windows | ARM64 | `jwt-term-vX.Y.Z-aarch64-pc-windows-msvc.zip` |
+### Pre-built Binaries
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/felipemorandini/jwt-term/releases).
+
+**macOS (Apple Silicon):**
+```bash
+curl -L https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv jwt-term /usr/local/bin/
+```
+
+**macOS (Intel):**
+```bash
+curl -L https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv jwt-term /usr/local/bin/
+```
+
+**Linux (x86_64):**
+```bash
+curl -L https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-x86_64-unknown-linux-musl.tar.gz | tar xz
+sudo mv jwt-term /usr/local/bin/
+```
+
+**Linux (ARM64):**
+```bash
+curl -L https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-aarch64-unknown-linux-musl.tar.gz | tar xz
+sudo mv jwt-term /usr/local/bin/
+```
+
+**Windows (x86_64):**
+
+Download [`jwt-term-x86_64-pc-windows-msvc.zip`](https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-x86_64-pc-windows-msvc.zip), extract, and add `jwt-term.exe` to your PATH.
+
+**Windows (ARM64):**
+
+Download [`jwt-term-aarch64-pc-windows-msvc.zip`](https://github.com/felipemorandini/jwt-term/releases/latest/download/jwt-term-aarch64-pc-windows-msvc.zip), extract, and add `jwt-term.exe` to your PATH.
+
+### Building from Source
+
+Requires Rust 1.91 or later.
+
+```bash
+git clone https://github.com/felipemorandini/jwt-term
+cd jwt-term
+cargo build --release
+# Binary will be at: target/release/jwt-term
+```
 
 ## Quick Start
+
+Run `jwt-term --help` to see all available commands and options.
 
 ```bash
 # Decode a JWT (no signature verification)
