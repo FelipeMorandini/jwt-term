@@ -48,7 +48,7 @@ fn test_version_flag() {
         .assert()
         .success()
         .stdout(predicate::str::contains("jwt-term"))
-        .stdout(predicate::str::contains("1.0.0"));
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn test_short_version_flag() {
         .arg("-V")
         .assert()
         .success()
-        .stdout(predicate::str::contains("1.0.0"));
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 // --- Subcommand Help ---
