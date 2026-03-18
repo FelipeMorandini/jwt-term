@@ -21,6 +21,31 @@ Stop pasting sensitive tokens into web portals. Debug them in your terminal.
 brew install felipemorandini/tap/jwt-term
 ```
 
+### AUR (Arch Linux)
+
+```bash
+# Using an AUR helper (e.g., yay, paru)
+yay -S jwt-term-bin
+```
+
+### Winget (Windows)
+
+```powershell
+winget install FelipeMorandini.jwt-term
+```
+
+### Debian/Ubuntu (.deb)
+
+Download the `.deb` package for your architecture from [GitHub Releases](https://github.com/felipemorandini/jwt-term/releases):
+
+```bash
+# x86_64
+sudo dpkg -i jwt-term_1.0.1-1_amd64.deb
+
+# ARM64
+sudo dpkg -i jwt-term_1.0.1-1_arm64.deb
+```
+
 ### Cargo (crates.io)
 
 ```bash
