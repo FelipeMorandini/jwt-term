@@ -2,7 +2,7 @@
 # https://github.com/felipemorandini/jwt-term
 
 pkgname=jwt-term-bin
-pkgver=1.0.1
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="A blazing-fast, secure, and offline-first CLI for inspecting, validating, and manipulating JWTs"
 arch=('x86_64' 'aarch64')
