@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-18
+
 ### Added
 
 - CHANGELOG.md following Keep a Changelog format
 - AUR package (PKGBUILD) for Arch Linux installation
 - Winget manifest for Windows package manager installation
 - Debian package (.deb) support via cargo-deb in release workflow
+- Project roadmap (ROADMAP.md)
 
 ## [1.0.1] - 2025-05-19
 
@@ -103,7 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD with cross-platform builds (6 targets)
 - Homebrew formula auto-update in release workflow
 
-[Unreleased]: https://github.com/felipemorandini/jwt-term/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/felipemorandini/jwt-term/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/felipemorandini/jwt-term/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/felipemorandini/jwt-term/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/felipemorandini/jwt-term/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/felipemorandini/jwt-term/compare/v0.3.0...v0.4.0
