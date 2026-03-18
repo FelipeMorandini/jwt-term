@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-18
+
+### Added
+
+- Automated AUR package updates in release workflow (`update-aur` job)
+- Registered `jwt-term-bin` on the AUR
+
+### Changed
+
+- Updated PKGBUILD version to 1.1.0
+- Hardened AUR CI job: pinned host key via `ssh-keyscan`, `curl --fail` with retries
+
 ## [1.1.0] - 2026-03-18
 
 ### Added
@@ -106,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD with cross-platform builds (6 targets)
 - Homebrew formula auto-update in release workflow
 
-[Unreleased]: https://github.com/felipemorandini/jwt-term/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/felipemorandini/jwt-term/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/felipemorandini/jwt-term/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/felipemorandini/jwt-term/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/felipemorandini/jwt-term/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/felipemorandini/jwt-term/compare/v0.4.0...v1.0.0
