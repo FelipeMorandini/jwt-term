@@ -35,9 +35,6 @@ wiremock = "0.6"
 maintainer = "Felipe Pires Morandini <felipepiresmorandini@gmail.com>"
 section = "utils"
 priority = "optional"
-assets = [
-    ["target/release/jwt-term", "usr/bin/", "755"],
-]
 extended-description = """\
 A blazing-fast, secure, and offline-first CLI tool built in Rust for inspecting, \
 validating, and manipulating JSON Web Tokens (JWTs) and OAuth tokens. \
