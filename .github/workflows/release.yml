@@ -221,26 +221,29 @@ jobs:
       - name: Configure SSH for AUR
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 700 ~/.ssh
+          printf '%s' "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
           cat >> ~/.ssh/config << 'EOF'
           Host aur.archlinux.org
             IdentityFile ~/.ssh/aur
             User aur
-            StrictHostKeyChecking accept-new
+            StrictHostKeyChecking yes
           EOF
           chmod 600 ~/.ssh/config
 
       - name: Download release assets and compute SHA256
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           TAG="${GITHUB_REF_NAME}"
           BASE="https://github.com/felipemorandini/jwt-term/releases/download/${TAG}"
 
-          curl -sL "${BASE}/jwt-term-x86_64-unknown-linux-musl.tar.gz" -o x86_64.tar.gz
-          curl -sL "${BASE}/jwt-term-aarch64-unknown-linux-musl.tar.gz" -o aarch64.tar.gz
-          curl -sL "https://raw.githubusercontent.com/felipemorandini/jwt-term/${TAG}/LICENSE" -o LICENSE
+          curl -fSL --retry 3 "${BASE}/jwt-term-x86_64-unknown-linux-musl.tar.gz" -o x86_64.tar.gz
+          curl -fSL --retry 3 "${BASE}/jwt-term-aarch64-unknown-linux-musl.tar.gz" -o aarch64.tar.gz
+          curl -fSL --retry 3 "https://raw.githubusercontent.com/felipemorandini/jwt-term/${TAG}/LICENSE" -o LICENSE
 
           SHA_X86_64=$(sha256sum x86_64.tar.gz | cut -d' ' -f1)
           SHA_AARCH64=$(sha256sum aarch64.tar.gz | cut -d' ' -f1)
