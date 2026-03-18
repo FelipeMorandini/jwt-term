@@ -31,6 +31,16 @@ tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 wiremock = "0.6"
 
+[package.metadata.deb]
+maintainer = "Felipe Pires Morandini <felipepiresmorandini@gmail.com>"
+section = "utils"
+priority = "optional"
+extended-description = """\
+A blazing-fast, secure, and offline-first CLI tool built in Rust for inspecting, \
+validating, and manipulating JSON Web Tokens (JWTs) and OAuth tokens. \
+Keeps sensitive tokens out of third-party web portals by bringing token debugging \
+directly to the terminal."""
+
 [profile.release]
 opt-level = 3
 lto = true
