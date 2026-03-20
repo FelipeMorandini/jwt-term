@@ -1,0 +1,59 @@
+site_name: jwt-term
+site_url: https://felipemorandini.github.io/jwt-term/
+site_description: A blazing-fast, secure, and offline-first CLI for inspecting, validating, and manipulating JWTs.
+site_author: Felipe Pires Morandini
+
+repo_name: felipemorandini/jwt-term
+repo_url: https://github.com/felipemorandini/jwt-term
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage Guide: usage.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md
+  - Security: security.md
+  - Changelog: changelog.md

@@ -18,6 +18,9 @@ target/
 CLAUDE.md
 .claude/
 
+# MkDocs build output
+site/
+
 # Added by cargo
 
 /target
