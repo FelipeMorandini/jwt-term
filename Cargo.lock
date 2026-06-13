@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "jwt-term"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "anyhow",
  "assert_cmd",
