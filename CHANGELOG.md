@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-06-13
+
+### Security
+
+- Patched `rustls-webpki` 0.103.9 → 0.103.13, fixing certificate-validation advisories
+  RUSTSEC-2026-0049, -0098, -0099, and -0104 (CRL handling, name-constraint bypasses,
+  reachable parse panic).
+- Patched `rand` 0.9.2 → 0.9.4, fixing RUSTSEC-2026-0097 (unsoundness under a custom logger).
+- Bumped `rustls` 0.23.37 → 0.23.40 (transitive).
+
 ## [1.1.2] - 2026-03-18
 
 ### Added
